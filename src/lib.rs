@@ -18,6 +18,9 @@ use core::{
 ///
 /// It is guaranteed to be valid and unique; no other access to the MMIO space of the device may
 /// happen for the lifetime `'a`.
+///
+/// An `OwnedMmioPointer` may be created from a mutable reference, but this should only be used for
+/// testing purposes, as references should never be constructed for real MMIO address space.
 #[derive(Debug, Eq, PartialEq)]
 pub struct OwnedMmioPointer<'a, T> {
     regs: NonNull<T>,
