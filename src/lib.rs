@@ -8,7 +8,11 @@
 #![deny(clippy::undocumented_unsafe_blocks)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use core::{marker::PhantomData, ptr::NonNull};
+use core::{
+    fmt::{self, Debug, Formatter},
+    marker::PhantomData,
+    ptr::NonNull,
+};
 
 /// A unique owned pointer to the registers of some MMIO device.
 ///
@@ -57,5 +61,38 @@ impl<'a, T> From<&'a mut T> for OwnedMmioPointer<'a, T> {
             regs: r.into(),
             phantom: PhantomData,
         }
+    }
+}
+
+/// The physical instance of some device's MMIO space.
+pub struct PhysicalInstance<T> {
+    pa: usize,
+    _phantom: PhantomData<T>,
+}
+
+impl<T> Debug for PhysicalInstance<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.debug_struct("PhysicalInstance")
+            .field("pa", &self.pa)
+            .field("size", &size_of::<T>())
+            .finish()
+    }
+}
+
+impl<T> PhysicalInstance<T> {
+    /// # Safety
+    ///
+    /// This must refer to the physical address of a real set of device registers of type `T`, and
+    /// there must only ever be a single `PhysicalInstance` created for those device registers.
+    pub unsafe fn new(pa: usize) -> Self {
+        Self {
+            pa,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Returns the physical base address of the device's registers.
+    pub fn pa(&self) -> usize {
+        self.pa
     }
 }
