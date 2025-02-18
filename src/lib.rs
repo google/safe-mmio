@@ -10,7 +10,7 @@
 
 mod physical;
 
-use core::{fmt::Debug, marker::PhantomData, ptr::NonNull};
+use core::{array, fmt::Debug, marker::PhantomData, ptr::NonNull};
 pub use physical::PhysicalInstance;
 
 /// A unique owned pointer to the registers of some MMIO device.
@@ -67,6 +67,18 @@ impl<T> OwnedMmioPointer<'_, T> {
     }
 }
 
+impl<T, const LEN: usize> OwnedMmioPointer<'_, [T; LEN]> {
+    /// Splits an `OwnedMmioPointer` to an array into an array of `OwnedMmioPointer`s.
+    pub fn split(&mut self) -> [OwnedMmioPointer<T>; LEN] {
+        array::from_fn(|i| OwnedMmioPointer {
+            // SAFETY: self.regs is always unique and valid for MMIO access. We make sure the
+            // pointers we split it into don't overlap, so the same applies to each of them.
+            regs: NonNull::new(unsafe { &raw mut (*self.regs.as_ptr())[i] }).unwrap(),
+            phantom: PhantomData,
+        })
+    }
+}
+
 // SAFETY: The caller of `OwnedMmioPointer::new` promises that the MMIO registers can be accessed
 // from any thread.
 unsafe impl<T> Send for OwnedMmioPointer<'_, T> {}
@@ -77,5 +89,21 @@ impl<'a, T> From<&'a mut T> for OwnedMmioPointer<'a, T> {
             regs: r.into(),
             phantom: PhantomData,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn array() {
+        let mut foo = [1, 2, 3];
+        let mut owned = OwnedMmioPointer::from(&mut foo);
+
+        let parts = owned.split();
+        assert_eq!(parts[0].read(), 1);
+        assert_eq!(parts[1].read(), 2);
+        assert_eq!(owned.split()[2].read(), 3);
     }
 }
