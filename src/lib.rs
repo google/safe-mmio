@@ -42,6 +42,21 @@ impl<T> OwnedMmioPointer<'_, T> {
         }
     }
 
+    /// Creates a new `OwnedMmioPointer` with the same lifetime as this one.
+    ///
+    /// This is used internally by the [`field!`] macro and shouldn't be called directly.
+    ///
+    /// # Safety
+    ///
+    /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
+    /// within the allocation that `self` points to.
+    pub unsafe fn child<U>(&mut self, regs: NonNull<U>) -> OwnedMmioPointer<U> {
+        OwnedMmioPointer {
+            regs,
+            phantom: PhantomData,
+        }
+    }
+
     /// Returns a raw const pointer to the MMIO registers.
     pub fn ptr(&self) -> *const T {
         self.regs.as_ptr()
@@ -92,9 +107,43 @@ impl<'a, T> From<&'a mut T> for OwnedMmioPointer<'a, T> {
     }
 }
 
+/// Gets an `OwnedMmioPointer` to a field of a type wrapped in an `OwnedMmioPointer`.
+#[macro_export]
+macro_rules! field {
+    ($mmio_pointer:expr, $field:ident) => {{
+        // Make sure $mmio_pointer is the right type.
+        let mmio_pointer: &mut $crate::OwnedMmioPointer<_> = &mut $mmio_pointer;
+        // SAFETY: ptr_mut is guaranteed to return a valid pointer for MMIO, so the pointer to the
+        // field must also be valid. MmioPointer::child gives it the same lifetime as the original
+        // pointer.
+        unsafe {
+            let child_pointer =
+                core::ptr::NonNull::new(&raw mut (*mmio_pointer.ptr_mut()).$field).unwrap();
+            mmio_pointer.child(child_pointer)
+        }
+    }};
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fields() {
+        struct Foo {
+            a: u32,
+            b: u32,
+        }
+
+        let mut foo = Foo { a: 1, b: 2 };
+        let mut owned: OwnedMmioPointer<Foo> = OwnedMmioPointer::from(&mut foo);
+
+        let owned_a: OwnedMmioPointer<u32> = field!(owned, a);
+        assert_eq!(owned_a.read(), 1);
+
+        let owned_b: OwnedMmioPointer<u32> = field!(owned, b);
+        assert_eq!(owned_b.read(), 2);
+    }
 
     #[test]
     fn array() {
