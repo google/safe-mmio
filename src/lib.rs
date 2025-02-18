@@ -32,7 +32,7 @@ impl<T> OwnedMmioPointer<'_, T> {
     ///
     /// # Safety
     ///
-    /// `ptr` must be a properly aligned and valid pointer to some MMIO address space of type T,
+    /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
     /// which is mapped as device memory and valid to read and write from any thread with volatile
     /// operations. There must not be any other aliases which are used to access the same MMIO
     /// region while this `OwnedMmioPointer` exists.
