@@ -51,6 +51,20 @@ impl<T> OwnedMmioPointer<'_, T> {
     pub fn ptr_mut(&mut self) -> *mut T {
         self.regs.as_ptr()
     }
+
+    /// Performs an MMIO read of the entire `T`.
+    pub fn read(&self) -> T {
+        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
+        unsafe { self.regs.read_volatile() }
+    }
+
+    /// Performs an MMIO write of the entire `T`.
+    pub fn write(&mut self, value: T) {
+        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
+        unsafe {
+            self.regs.write_volatile(value);
+        }
+    }
 }
 
 // SAFETY: The caller of `OwnedMmioPointer::new` promises that the MMIO registers can be accessed
