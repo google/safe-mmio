@@ -139,6 +139,22 @@ macro_rules! field {
     }};
 }
 
+/// Gets an `OwnedMmioPointer` to a field of a type wrapped in an `OwnedMmioPointer`.
+#[macro_export]
+macro_rules! field {
+    ($mmio_pointer:expr, $field:ident) => {{
+        // Make sure $mmio_pointer is the right type.
+        let mmio_pointer: &mut OwnedMmioPointer<_> = &mut $mmio_pointer;
+        // SAFETY: ptr_mut is guaranteed to return a valid pointer for MMIO, so the pointer to the
+        // field must also be valid. MmioPointer::child gives it the same lifetime as the original
+        // pointer.
+        unsafe {
+            let child_pointer = NonNull::new(&raw mut (*mmio_pointer.ptr_mut()).$field).unwrap();
+            mmio_pointer.child(child_pointer)
+        }
+    }};
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
