@@ -8,7 +8,11 @@
 #![deny(clippy::undocumented_unsafe_blocks)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64_mmio;
 mod physical;
+#[cfg(not(target_arch = "aarch64"))]
+mod volatile_mmio;
 
 use core::{array, fmt::Debug, marker::PhantomData, ptr::NonNull};
 pub use physical::PhysicalInstance;
@@ -65,22 +69,6 @@ impl<T: ?Sized> OwnedMmioPointer<'_, T> {
     /// Returns a raw mut pointer to the MMIO registers.
     pub fn ptr_mut(&mut self) -> *mut T {
         self.regs.as_ptr()
-    }
-}
-
-impl<T> OwnedMmioPointer<'_, T> {
-    /// Performs an MMIO read of the entire `T`.
-    pub fn read(&self) -> T {
-        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
-        unsafe { self.regs.read_volatile() }
-    }
-
-    /// Performs an MMIO write of the entire `T`.
-    pub fn write(&mut self, value: T) {
-        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
-        unsafe {
-            self.regs.write_volatile(value);
-        }
     }
 }
 
