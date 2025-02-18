@@ -21,12 +21,12 @@ pub use physical::PhysicalInstance;
 /// An `OwnedMmioPointer` may be created from a mutable reference, but this should only be used for
 /// testing purposes, as references should never be constructed for real MMIO address space.
 #[derive(Debug, Eq, PartialEq)]
-pub struct OwnedMmioPointer<'a, T> {
+pub struct OwnedMmioPointer<'a, T: ?Sized> {
     regs: NonNull<T>,
     phantom: PhantomData<&'a mut T>,
 }
 
-impl<T> OwnedMmioPointer<'_, T> {
+impl<T: ?Sized> OwnedMmioPointer<'_, T> {
     /// Creates a new `OwnedMmioPointer` from a non-null raw pointer.
     ///
     /// # Safety
@@ -66,7 +66,9 @@ impl<T> OwnedMmioPointer<'_, T> {
     pub fn ptr_mut(&mut self) -> *mut T {
         self.regs.as_ptr()
     }
+}
 
+impl<T> OwnedMmioPointer<'_, T> {
     /// Performs an MMIO read of the entire `T`.
     pub fn read(&self) -> T {
         // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
@@ -79,6 +81,31 @@ impl<T> OwnedMmioPointer<'_, T> {
         unsafe {
             self.regs.write_volatile(value);
         }
+    }
+}
+
+impl<T> OwnedMmioPointer<'_, [T]> {
+    /// Returns an `OwnedMmioPointer` to an element of this slice, or `None` if the index is out of
+    /// bounds.
+    pub fn get(&mut self, index: usize) -> Option<OwnedMmioPointer<T>> {
+        if index >= self.len() {
+            return None;
+        }
+        // SAFETY: self.regs is always unique and valid for MMIO access.
+        let regs = NonNull::new(unsafe { &raw mut (*self.regs.as_ptr())[index] }).unwrap();
+        // SAFETY: We created regs from the raw slice in self.regs, so it must also be valid, unique
+        // and within the allocation of self.regs.
+        Some(unsafe { self.child(regs) })
+    }
+
+    /// Returns the length of the slice.
+    pub const fn len(&self) -> usize {
+        self.regs.len()
+    }
+
+    /// Returns whether the slice is empty.
+    pub const fn is_empty(&self) -> bool {
+        self.regs.is_empty()
     }
 }
 
@@ -98,7 +125,7 @@ impl<T, const LEN: usize> OwnedMmioPointer<'_, [T; LEN]> {
 // from any thread.
 unsafe impl<T> Send for OwnedMmioPointer<'_, T> {}
 
-impl<'a, T> From<&'a mut T> for OwnedMmioPointer<'a, T> {
+impl<'a, T: ?Sized> From<&'a mut T> for OwnedMmioPointer<'a, T> {
     fn from(r: &'a mut T) -> Self {
         Self {
             regs: r.into(),
@@ -154,5 +181,25 @@ mod tests {
         assert_eq!(parts[0].read(), 1);
         assert_eq!(parts[1].read(), 2);
         assert_eq!(owned.split()[2].read(), 3);
+    }
+
+    #[test]
+    fn slice() {
+        let mut foo = [1, 2, 3];
+        let mut owned = OwnedMmioPointer::from(foo.as_mut_slice());
+
+        assert!(!owned.ptr().is_null());
+        assert!(!owned.ptr_mut().is_null());
+
+        assert!(!owned.is_empty());
+        assert_eq!(owned.len(), 3);
+
+        let first: OwnedMmioPointer<i32> = owned.get(0).unwrap();
+        assert_eq!(first.read(), 1);
+
+        let second: OwnedMmioPointer<i32> = owned.get(1).unwrap();
+        assert_eq!(second.read(), 2);
+
+        assert_eq!(owned.get(3), None);
     }
 }
