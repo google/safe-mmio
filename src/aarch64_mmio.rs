@@ -4,7 +4,7 @@
 
 macro_rules! asm_mmio {
     ($t:ty, $read_assembly:literal, $write_assembly:literal) => {
-        impl $crate::OwnedMmioPointer<'_, $t> {
+        impl<Access> $crate::OwnedMmioPointer<'_, $t, Access> {
             #[doc = "Performs an MMIO read of the "]
             #[doc = stringify!($t)]
             #[doc = "."]
@@ -19,7 +19,9 @@ macro_rules! asm_mmio {
                 }
                 value
             }
+        }
 
+        impl $crate::OwnedMmioPointer<'_, $t, $crate::ReadWrite> {
             #[doc = "Performs an MMIO write of the "]
             #[doc = stringify!($t)]
             #[doc = "."]
