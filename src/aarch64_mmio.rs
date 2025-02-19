@@ -2,19 +2,16 @@
 // This project is dual-licensed under Apache 2.0 and MIT terms.
 // See LICENSE-APACHE and LICENSE-MIT for details.
 
-use crate::OwnedMmioPointer;
-use core::arch::asm;
-
 macro_rules! asm_mmio {
     ($t:ty, $read_assembly:literal, $write_assembly:literal) => {
-        impl OwnedMmioPointer<'_, $t> {
+        impl<Access> $crate::OwnedMmioPointer<'_, $t, Access> {
             #[doc = "Performs an MMIO read of the "]
             #[doc = stringify!($t)]
             #[doc = "."]
             pub fn read(&self) -> $t {
                 let value;
                 unsafe {
-                    asm!(
+                    core::arch::asm!(
                         $read_assembly,
                         value = out(reg) value,
                         ptr = in(reg) self.regs.as_ptr(),
@@ -22,13 +19,15 @@ macro_rules! asm_mmio {
                 }
                 value
             }
+        }
 
+        impl $crate::OwnedMmioPointer<'_, $t, $crate::ReadWrite> {
             #[doc = "Performs an MMIO write of the "]
             #[doc = stringify!($t)]
             #[doc = "."]
             pub fn write(&mut self, value: $t) {
                 unsafe {
-                    asm!(
+                    core::arch::asm!(
                         $write_assembly,
                         value = in(reg) value,
                         ptr = in(reg) self.regs.as_ptr(),
