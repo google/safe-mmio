@@ -37,6 +37,10 @@ macro_rules! asm_mmio {
 }
 
 asm_mmio!(u8, "ldrb {value:w}, [{ptr}]", "strb {value:w}, [{ptr}]");
+asm_mmio!(i8, "ldrb {value:w}, [{ptr}]", "strb {value:w}, [{ptr}]");
 asm_mmio!(u16, "ldrh {value:w}, [{ptr}]", "strh {value:w}, [{ptr}]");
+asm_mmio!(i16, "ldrh {value:w}, [{ptr}]", "strh {value:w}, [{ptr}]");
 asm_mmio!(u32, "ldr {value:w}, [{ptr}]", "str {value:w}, [{ptr}]");
+asm_mmio!(i32, "ldr {value:w}, [{ptr}]", "str {value:w}, [{ptr}]");
 asm_mmio!(u64, "ldr {value:x}, [{ptr}]", "str {value:x}, [{ptr}]");
+asm_mmio!(i64, "ldr {value:x}, [{ptr}]", "str {value:x}, [{ptr}]");
