@@ -17,6 +17,12 @@ mod volatile_mmio;
 use core::{array, fmt::Debug, marker::PhantomData, ptr::NonNull};
 pub use physical::PhysicalInstance;
 
+/// Wrapper type for MMIO fields which should only be written to.
+pub struct WriteOnly<T>(T);
+
+/// Wrapper type for MMIO fields which are unsafe to read or write.
+pub struct Unsafe<T>(T);
+
 /// Marker type for a read-only `OwnedMmioPointer.`
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ReadOnly;
