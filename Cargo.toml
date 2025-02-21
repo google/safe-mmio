@@ -10,3 +10,4 @@ keywords = ["mmio"]
 categories = ["embedded", "no-std"]
 
 [dependencies]
+zerocopy = "0.8.18"
