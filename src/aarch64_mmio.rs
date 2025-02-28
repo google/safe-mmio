@@ -2,7 +2,7 @@
 // This project is dual-licensed under Apache 2.0 and MIT terms.
 // See LICENSE-APACHE and LICENSE-MIT for details.
 
-use crate::OwnedMmioPointer;
+use crate::UniqueMmioPointer;
 use core::ptr::NonNull;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -61,7 +61,7 @@ asm_mmio!(
     "str {value:x}, [{ptr}]"
 );
 
-impl<T: FromBytes + IntoBytes> OwnedMmioPointer<'_, T> {
+impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, T> {
     /// Performs an MMIO read and returns the value.
     ///
     /// If `T` is exactly 1, 2, 4 or 8 bytes long then this will be a single operation. Otherwise
@@ -81,7 +81,7 @@ impl<T: FromBytes + IntoBytes> OwnedMmioPointer<'_, T> {
     }
 }
 
-impl<T: Immutable + IntoBytes> OwnedMmioPointer<'_, T> {
+impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, T> {
     /// Performs an MMIO write of the given value.
     ///
     /// If `T` is exactly 1, 2, 4 or 8 bytes long then this will be a single operation. Otherwise

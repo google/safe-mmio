@@ -22,23 +22,23 @@ pub use physical::PhysicalInstance;
 /// It is guaranteed to be valid and unique; no other access to the MMIO space of the device may
 /// happen for the lifetime `'a`.
 ///
-/// An `OwnedMmioPointer` may be created from a mutable reference, but this should only be used for
+/// A `UniqueMmioPointer` may be created from a mutable reference, but this should only be used for
 /// testing purposes, as references should never be constructed for real MMIO address space.
 #[derive(Debug, Eq, PartialEq)]
-pub struct OwnedMmioPointer<'a, T: ?Sized> {
+pub struct UniqueMmioPointer<'a, T: ?Sized> {
     regs: NonNull<T>,
     phantom: PhantomData<&'a mut T>,
 }
 
-impl<T: ?Sized> OwnedMmioPointer<'_, T> {
-    /// Creates a new `OwnedMmioPointer` from a non-null raw pointer.
+impl<T: ?Sized> UniqueMmioPointer<'_, T> {
+    /// Creates a new `UniqueMmioPointer` from a non-null raw pointer.
     ///
     /// # Safety
     ///
     /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
     /// which is mapped as device memory and valid to read and write from any thread with volatile
     /// operations. There must not be any other aliases which are used to access the same MMIO
-    /// region while this `OwnedMmioPointer` exists.
+    /// region while this `UniqueMmioPointer` exists.
     pub unsafe fn new(regs: NonNull<T>) -> Self {
         Self {
             regs,
@@ -46,7 +46,7 @@ impl<T: ?Sized> OwnedMmioPointer<'_, T> {
         }
     }
 
-    /// Creates a new `OwnedMmioPointer` with the same lifetime as this one.
+    /// Creates a new `UniqueMmioPointer` with the same lifetime as this one.
     ///
     /// This is used internally by the [`field!`] macro and shouldn't be called directly.
     ///
@@ -54,8 +54,8 @@ impl<T: ?Sized> OwnedMmioPointer<'_, T> {
     ///
     /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
     /// within the allocation that `self` points to.
-    pub unsafe fn child<U>(&mut self, regs: NonNull<U>) -> OwnedMmioPointer<U> {
-        OwnedMmioPointer {
+    pub unsafe fn child<U>(&mut self, regs: NonNull<U>) -> UniqueMmioPointer<U> {
+        UniqueMmioPointer {
             regs,
             phantom: PhantomData,
         }
@@ -72,10 +72,10 @@ impl<T: ?Sized> OwnedMmioPointer<'_, T> {
     }
 }
 
-impl<T> OwnedMmioPointer<'_, [T]> {
-    /// Returns an `OwnedMmioPointer` to an element of this slice, or `None` if the index is out of
+impl<T> UniqueMmioPointer<'_, [T]> {
+    /// Returns a `UniqueMmioPointer` to an element of this slice, or `None` if the index is out of
     /// bounds.
-    pub fn get(&mut self, index: usize) -> Option<OwnedMmioPointer<T>> {
+    pub fn get(&mut self, index: usize) -> Option<UniqueMmioPointer<T>> {
         if index >= self.len() {
             return None;
         }
@@ -97,10 +97,10 @@ impl<T> OwnedMmioPointer<'_, [T]> {
     }
 }
 
-impl<T, const LEN: usize> OwnedMmioPointer<'_, [T; LEN]> {
-    /// Splits an `OwnedMmioPointer` to an array into an array of `OwnedMmioPointer`s.
-    pub fn split(&mut self) -> [OwnedMmioPointer<T>; LEN] {
-        array::from_fn(|i| OwnedMmioPointer {
+impl<T, const LEN: usize> UniqueMmioPointer<'_, [T; LEN]> {
+    /// Splits a `UniqueMmioPointer` to an array into an array of `UniqueMmioPointer`s.
+    pub fn split(&mut self) -> [UniqueMmioPointer<T>; LEN] {
+        array::from_fn(|i| UniqueMmioPointer {
             // SAFETY: self.regs is always unique and valid for MMIO access. We make sure the
             // pointers we split it into don't overlap, so the same applies to each of them.
             regs: NonNull::new(unsafe { &raw mut (*self.regs.as_ptr())[i] }).unwrap(),
@@ -109,11 +109,11 @@ impl<T, const LEN: usize> OwnedMmioPointer<'_, [T; LEN]> {
     }
 }
 
-// SAFETY: The caller of `OwnedMmioPointer::new` promises that the MMIO registers can be accessed
+// SAFETY: The caller of `UniqueMmioPointer::new` promises that the MMIO registers can be accessed
 // from any thread.
-unsafe impl<T> Send for OwnedMmioPointer<'_, T> {}
+unsafe impl<T> Send for UniqueMmioPointer<'_, T> {}
 
-impl<'a, T: ?Sized> From<&'a mut T> for OwnedMmioPointer<'a, T> {
+impl<'a, T: ?Sized> From<&'a mut T> for UniqueMmioPointer<'a, T> {
     fn from(r: &'a mut T) -> Self {
         Self {
             regs: r.into(),
@@ -122,12 +122,12 @@ impl<'a, T: ?Sized> From<&'a mut T> for OwnedMmioPointer<'a, T> {
     }
 }
 
-/// Gets an `OwnedMmioPointer` to a field of a type wrapped in an `OwnedMmioPointer`.
+/// Gets a `UniqueMmioPointer` to a field of a type wrapped in a `UniqueMmioPointer`.
 #[macro_export]
 macro_rules! field {
     ($mmio_pointer:expr, $field:ident) => {{
         // Make sure $mmio_pointer is the right type.
-        let mmio_pointer: &mut $crate::OwnedMmioPointer<_> = &mut $mmio_pointer;
+        let mmio_pointer: &mut $crate::UniqueMmioPointer<_> = &mut $mmio_pointer;
         // SAFETY: ptr_mut is guaranteed to return a valid pointer for MMIO, so the pointer to the
         // field must also be valid. MmioPointer::child gives it the same lifetime as the original
         // pointer.
@@ -151,19 +151,19 @@ mod tests {
         }
 
         let mut foo = Foo { a: 1, b: 2 };
-        let mut owned: OwnedMmioPointer<Foo> = OwnedMmioPointer::from(&mut foo);
+        let mut owned: UniqueMmioPointer<Foo> = UniqueMmioPointer::from(&mut foo);
 
-        let owned_a: OwnedMmioPointer<u32> = field!(owned, a);
+        let owned_a: UniqueMmioPointer<u32> = field!(owned, a);
         assert_eq!(owned_a.read(), 1);
 
-        let owned_b: OwnedMmioPointer<u32> = field!(owned, b);
+        let owned_b: UniqueMmioPointer<u32> = field!(owned, b);
         assert_eq!(owned_b.read(), 2);
     }
 
     #[test]
     fn array() {
         let mut foo = [1, 2, 3];
-        let mut owned = OwnedMmioPointer::from(&mut foo);
+        let mut owned = UniqueMmioPointer::from(&mut foo);
 
         let parts = owned.split();
         assert_eq!(parts[0].read(), 1);
@@ -174,7 +174,7 @@ mod tests {
     #[test]
     fn slice() {
         let mut foo = [1, 2, 3];
-        let mut owned = OwnedMmioPointer::from(foo.as_mut_slice());
+        let mut owned = UniqueMmioPointer::from(foo.as_mut_slice());
 
         assert!(!owned.ptr().is_null());
         assert!(!owned.ptr_mut().is_null());
@@ -182,10 +182,10 @@ mod tests {
         assert!(!owned.is_empty());
         assert_eq!(owned.len(), 3);
 
-        let first: OwnedMmioPointer<i32> = owned.get(0).unwrap();
+        let first: UniqueMmioPointer<i32> = owned.get(0).unwrap();
         assert_eq!(first.read(), 1);
 
-        let second: OwnedMmioPointer<i32> = owned.get(1).unwrap();
+        let second: UniqueMmioPointer<i32> = owned.get(1).unwrap();
         assert_eq!(second.read(), 2);
 
         assert_eq!(owned.get(3), None);
