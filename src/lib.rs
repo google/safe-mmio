@@ -16,6 +16,22 @@ mod volatile_mmio;
 
 use core::{array, fmt::Debug, marker::PhantomData, ptr::NonNull};
 pub use physical::PhysicalInstance;
+use zerocopy::{FromBytes, Immutable, IntoBytes};
+
+/// Wrapper for a field which may safely be read but not written.
+#[derive(Clone, Debug, Eq, FromBytes, IntoBytes, PartialEq)]
+#[repr(transparent)]
+pub struct ReadOnly<T>(T);
+
+/// Wrapper for a field which may safely be written but not read.
+#[derive(Clone, Debug, Eq, Immutable, IntoBytes, PartialEq)]
+#[repr(transparent)]
+pub struct WriteOnly<T>(T);
+
+/// Wrapper for a field which may safely be written and read.
+#[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
+#[repr(transparent)]
+pub struct ReadWrite<T>(T);
 
 /// A unique owned pointer to the registers of some MMIO device.
 ///
@@ -39,6 +55,9 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     /// which is mapped as device memory and valid to read and write from any thread with volatile
     /// operations. There must not be any other aliases which are used to access the same MMIO
     /// region while this `UniqueMmioPointer` exists.
+    ///
+    /// If `T` contains any fields wrapped in [`ReadOnly`], [`WriteOnly`] or [`ReadWrite`] then they
+    /// must indeed be safe to perform MMIO reads or writes on.
     pub unsafe fn new(regs: NonNull<T>) -> Self {
         Self {
             regs,
@@ -69,6 +88,44 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     /// Returns a raw mut pointer to the MMIO registers.
     pub fn ptr_mut(&mut self) -> *mut T {
         self.regs.as_ptr()
+    }
+}
+
+impl<T: FromBytes + Immutable + IntoBytes> UniqueMmioPointer<'_, ReadWrite<T>> {
+    /// Performs an MMIO read of the entire `T`.
+    pub fn read(&self) -> T {
+        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space, and `T`
+        // being wrapped in `ReadWrite` implies that it is safe to read.
+        unsafe { self.read_unsafe().0 }
+    }
+
+    /// Performs an MMIO write of the entire `T`.
+    pub fn write(&mut self, value: T) {
+        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space, and `T`
+        // being wrapped in `ReadWrite` implies that it is safe to write.
+        unsafe {
+            self.write_unsafe(ReadWrite(value));
+        }
+    }
+}
+
+impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, ReadOnly<T>> {
+    /// Performs an MMIO read of the entire `T`.
+    pub fn read(&self) -> T {
+        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space, and `T`
+        // being wrapped in `ReadOnly` implies that it is safe to read.
+        unsafe { self.read_unsafe().0 }
+    }
+}
+
+impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, WriteOnly<T>> {
+    /// Performs an MMIO write of the entire `T`.
+    pub fn write(&mut self, value: T) {
+        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space, and `T`
+        // being wrapped in `WriteOnly` implies that it is safe to write.
+        unsafe {
+            self.write_unsafe(WriteOnly(value));
+        }
     }
 }
 
@@ -146,23 +203,56 @@ mod tests {
     #[test]
     fn fields() {
         struct Foo {
-            a: u32,
-            b: u32,
+            a: ReadWrite<u32>,
+            b: ReadWrite<u32>,
         }
 
-        let mut foo = Foo { a: 1, b: 2 };
+        let mut foo = Foo {
+            a: ReadWrite(1),
+            b: ReadWrite(2),
+        };
         let mut owned: UniqueMmioPointer<Foo> = UniqueMmioPointer::from(&mut foo);
 
-        let owned_a: UniqueMmioPointer<u32> = field!(owned, a);
+        let owned_a: UniqueMmioPointer<ReadWrite<u32>> = field!(owned, a);
         assert_eq!(owned_a.read(), 1);
 
-        let owned_b: UniqueMmioPointer<u32> = field!(owned, b);
+        let owned_b: UniqueMmioPointer<ReadWrite<u32>> = field!(owned, b);
         assert_eq!(owned_b.read(), 2);
     }
 
     #[test]
+    fn restricted_fields() {
+        struct Foo {
+            r: ReadOnly<u32>,
+            w: WriteOnly<u32>,
+            u: u32,
+        }
+
+        let mut foo = Foo {
+            r: ReadOnly(1),
+            w: WriteOnly(2),
+            u: 3,
+        };
+        let mut owned: UniqueMmioPointer<Foo> = UniqueMmioPointer::from(&mut foo);
+
+        let owned_r: UniqueMmioPointer<ReadOnly<u32>> = field!(owned, r);
+        assert_eq!(owned_r.read(), 1);
+
+        let mut owned_w: UniqueMmioPointer<WriteOnly<u32>> = field!(owned, w);
+        owned_w.write(42);
+
+        let mut owned_u: UniqueMmioPointer<u32> = field!(owned, u);
+        // SAFETY: 'u' is safe to read or write because it's just a fake.
+        unsafe {
+            assert_eq!(owned_u.read_unsafe(), 3);
+            owned_u.write_unsafe(42);
+            assert_eq!(owned_u.read_unsafe(), 42);
+        }
+    }
+
+    #[test]
     fn array() {
-        let mut foo = [1, 2, 3];
+        let mut foo = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
         let mut owned = UniqueMmioPointer::from(&mut foo);
 
         let parts = owned.split();
@@ -173,7 +263,7 @@ mod tests {
 
     #[test]
     fn slice() {
-        let mut foo = [1, 2, 3];
+        let mut foo = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
         let mut owned = UniqueMmioPointer::from(foo.as_mut_slice());
 
         assert!(!owned.ptr().is_null());
@@ -182,12 +272,12 @@ mod tests {
         assert!(!owned.is_empty());
         assert_eq!(owned.len(), 3);
 
-        let first: UniqueMmioPointer<i32> = owned.get(0).unwrap();
+        let first: UniqueMmioPointer<ReadWrite<i32>> = owned.get(0).unwrap();
         assert_eq!(first.read(), 1);
 
-        let second: UniqueMmioPointer<i32> = owned.get(1).unwrap();
+        let second: UniqueMmioPointer<ReadWrite<i32>> = owned.get(1).unwrap();
         assert_eq!(second.read(), 2);
 
-        assert_eq!(owned.get(3), None);
+        assert!(owned.get(3).is_none());
     }
 }
