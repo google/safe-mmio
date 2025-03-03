@@ -14,7 +14,7 @@ mod physical;
 #[cfg(not(target_arch = "aarch64"))]
 mod volatile_mmio;
 
-use core::{array, fmt::Debug, marker::PhantomData, ptr::NonNull};
+use core::{array, fmt::Debug, marker::PhantomData, ops::Deref, ptr::NonNull};
 pub use physical::PhysicalInstance;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -43,10 +43,7 @@ pub struct ReadWrite<T>(pub T);
 /// A `UniqueMmioPointer` may be created from a mutable reference, but this should only be used for
 /// testing purposes, as references should never be constructed for real MMIO address space.
 #[derive(Debug, Eq, PartialEq)]
-pub struct UniqueMmioPointer<'a, T: ?Sized> {
-    regs: NonNull<T>,
-    phantom: PhantomData<&'a mut T>,
-}
+pub struct UniqueMmioPointer<'a, T: ?Sized>(SharedMmioPointer<'a, T>);
 
 impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     /// Creates a new `UniqueMmioPointer` from a non-null raw pointer.
@@ -61,10 +58,10 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     /// If `T` contains any fields wrapped in [`ReadOnly`], [`WriteOnly`] or [`ReadWrite`] then they
     /// must indeed be safe to perform MMIO reads or writes on.
     pub unsafe fn new(regs: NonNull<T>) -> Self {
-        Self {
+        Self(SharedMmioPointer {
             regs,
             phantom: PhantomData,
-        }
+        })
     }
 
     /// Creates a new `UniqueMmioPointer` with the same lifetime as this one.
@@ -76,20 +73,15 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
     /// within the allocation that `self` points to.
     pub unsafe fn child<U>(&mut self, regs: NonNull<U>) -> UniqueMmioPointer<U> {
-        UniqueMmioPointer {
+        UniqueMmioPointer(SharedMmioPointer {
             regs,
             phantom: PhantomData,
-        }
-    }
-
-    /// Returns a raw const pointer to the MMIO registers.
-    pub fn ptr(&self) -> *const T {
-        self.regs.as_ptr()
+        })
     }
 
     /// Returns a raw mut pointer to the MMIO registers.
     pub fn ptr_mut(&mut self) -> *mut T {
-        self.regs.as_ptr()
+        self.0.regs.as_ptr()
     }
 }
 
@@ -140,6 +132,113 @@ impl<T> UniqueMmioPointer<'_, [T]> {
         if index >= self.len() {
             return None;
         }
+        // SAFETY: self.ptr_mut() is guaranteed to return a pointer that is valid for MMIO and
+        // unique, as promised by the caller of `UniqueMmioPointer::new`.
+        let regs = NonNull::new(unsafe { &raw mut (*self.ptr_mut())[index] }).unwrap();
+        // SAFETY: We created regs from the raw slice in self.regs, so it must also be valid, unique
+        // and within the allocation of self.regs.
+        Some(unsafe { self.child(regs) })
+    }
+}
+
+impl<T, const LEN: usize> UniqueMmioPointer<'_, [T; LEN]> {
+    /// Splits a `UniqueMmioPointer` to an array into an array of `UniqueMmioPointer`s.
+    pub fn split(&mut self) -> [UniqueMmioPointer<T>; LEN] {
+        array::from_fn(|i| {
+            UniqueMmioPointer(SharedMmioPointer {
+                // SAFETY: self.regs is always unique and valid for MMIO access. We make sure the
+                // pointers we split it into don't overlap, so the same applies to each of them.
+                regs: NonNull::new(unsafe { &raw mut (*self.regs.as_ptr())[i] }).unwrap(),
+                phantom: PhantomData,
+            })
+        })
+    }
+}
+
+impl<'a, T: ?Sized> From<&'a mut T> for UniqueMmioPointer<'a, T> {
+    fn from(r: &'a mut T) -> Self {
+        Self(SharedMmioPointer {
+            regs: r.into(),
+            phantom: PhantomData,
+        })
+    }
+}
+
+impl<'a, T: ?Sized> Deref for UniqueMmioPointer<'a, T> {
+    type Target = SharedMmioPointer<'a, T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// A shared pointer to the registers of some MMIO device.
+///
+/// It is guaranteed to be valid but unlike [`UniqueMmioPointer`] may not be unique.
+#[derive(Debug, Eq, PartialEq)]
+pub struct SharedMmioPointer<'a, T: ?Sized> {
+    regs: NonNull<T>,
+    phantom: PhantomData<&'a T>,
+}
+
+impl<T: ?Sized> Clone for SharedMmioPointer<'_, T> {
+    fn clone(&self) -> Self {
+        Self {
+            regs: self.regs.clone(),
+            phantom: self.phantom.clone(),
+        }
+    }
+}
+
+impl<T: ?Sized> SharedMmioPointer<'_, T> {
+    /// Creates a new `SharedMmioPointer` with the same lifetime as this one.
+    ///
+    /// This is used internally by the [`field_shared!`] macro and shouldn't be called directly.
+    ///
+    /// # Safety
+    ///
+    /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
+    /// within the allocation that `self` points to.
+    pub unsafe fn child<U>(&self, regs: NonNull<U>) -> SharedMmioPointer<U> {
+        SharedMmioPointer {
+            regs,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Returns a raw const pointer to the MMIO registers.
+    pub fn ptr(&self) -> *const T {
+        self.regs.as_ptr()
+    }
+}
+
+// SAFETY: A `SharedMmioPointer` always originates either from a reference or from a
+// `UniqueMmioPointer`. The caller of `UniqueMmioPointer::new` promises that the MMIO registers can
+// be accessed from any thread.
+unsafe impl<T: Send + Sync> Send for SharedMmioPointer<'_, T> {}
+
+impl<'a, T: ?Sized> From<&'a T> for SharedMmioPointer<'a, T> {
+    fn from(r: &'a T) -> Self {
+        Self {
+            regs: r.into(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a, T: ?Sized> From<UniqueMmioPointer<'a, T>> for SharedMmioPointer<'a, T> {
+    fn from(unique: UniqueMmioPointer<'a, T>) -> Self {
+        unique.0
+    }
+}
+
+impl<T> SharedMmioPointer<'_, [T]> {
+    /// Returns a `SharedMmioPointer` to an element of this slice, or `None` if the index is out of
+    /// bounds.
+    pub fn get(&self, index: usize) -> Option<SharedMmioPointer<T>> {
+        if index >= self.len() {
+            return None;
+        }
         // SAFETY: self.regs is always unique and valid for MMIO access.
         let regs = NonNull::new(unsafe { &raw mut (*self.regs.as_ptr())[index] }).unwrap();
         // SAFETY: We created regs from the raw slice in self.regs, so it must also be valid, unique
@@ -158,28 +257,15 @@ impl<T> UniqueMmioPointer<'_, [T]> {
     }
 }
 
-impl<T, const LEN: usize> UniqueMmioPointer<'_, [T; LEN]> {
-    /// Splits a `UniqueMmioPointer` to an array into an array of `UniqueMmioPointer`s.
-    pub fn split(&mut self) -> [UniqueMmioPointer<T>; LEN] {
-        array::from_fn(|i| UniqueMmioPointer {
+impl<T, const LEN: usize> SharedMmioPointer<'_, [T; LEN]> {
+    /// Splits a `SharedMmioPointer` to an array into an array of `SharedMmioPointer`s.
+    pub fn split(&self) -> [SharedMmioPointer<T>; LEN] {
+        array::from_fn(|i| SharedMmioPointer {
             // SAFETY: self.regs is always unique and valid for MMIO access. We make sure the
             // pointers we split it into don't overlap, so the same applies to each of them.
             regs: NonNull::new(unsafe { &raw mut (*self.regs.as_ptr())[i] }).unwrap(),
             phantom: PhantomData,
         })
-    }
-}
-
-// SAFETY: The caller of `UniqueMmioPointer::new` promises that the MMIO registers can be accessed
-// from any thread.
-unsafe impl<T> Send for UniqueMmioPointer<'_, T> {}
-
-impl<'a, T: ?Sized> From<&'a mut T> for UniqueMmioPointer<'a, T> {
-    fn from(r: &'a mut T) -> Self {
-        Self {
-            regs: r.into(),
-            phantom: PhantomData,
-        }
     }
 }
 
@@ -195,6 +281,24 @@ macro_rules! field {
         unsafe {
             let child_pointer =
                 core::ptr::NonNull::new(&raw mut (*mmio_pointer.ptr_mut()).$field).unwrap();
+            mmio_pointer.child(child_pointer)
+        }
+    }};
+}
+
+/// Gets a `SharedMmioPointer` to a field of a type wrapped in a `SharedMmioPointer`.
+#[macro_export]
+macro_rules! field_shared {
+    ($mmio_pointer:expr, $field:ident) => {{
+        // Make sure $mmio_pointer is the right type.
+        let mmio_pointer: &$crate::SharedMmioPointer<_> = &$mmio_pointer;
+        // SAFETY: ptr_mut is guaranteed to return a valid pointer for MMIO, so the pointer to the
+        // field must also be valid. MmioPointer::child gives it the same lifetime as the original
+        // pointer.
+        unsafe {
+            let child_pointer =
+                core::ptr::NonNull::new((&raw const (*mmio_pointer.ptr()).$field).cast_mut())
+                    .unwrap();
             mmio_pointer.child(child_pointer)
         }
     }};

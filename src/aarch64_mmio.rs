@@ -2,7 +2,7 @@
 // This project is dual-licensed under Apache 2.0 and MIT terms.
 // See LICENSE-APACHE and LICENSE-MIT for details.
 
-use crate::UniqueMmioPointer;
+use crate::{SharedMmioPointer, UniqueMmioPointer};
 use core::ptr::NonNull;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -74,17 +74,7 @@ impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, T> {
     ///
     /// This field must be safe to perform an MMIO read from.
     pub unsafe fn read_unsafe(&mut self) -> T {
-        match size_of::<T>() {
-            1 => convert(unsafe { read_u8(self.regs.cast().as_ptr()) }),
-            2 => convert(unsafe { read_u16(self.regs.cast().as_ptr()) }),
-            4 => convert(unsafe { read_u32(self.regs.cast().as_ptr()) }),
-            8 => convert(unsafe { read_u64(self.regs.cast().as_ptr()) }),
-            _ => {
-                let mut value = T::new_zeroed();
-                unsafe { read_slice(self.regs.cast(), value.as_mut_bytes()) };
-                value
-            }
-        }
+        unsafe { mmio_read(self.regs) }
     }
 }
 
@@ -104,6 +94,40 @@ impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, T> {
             4 => unsafe { write_u32(self.regs.cast().as_ptr(), convert(value)) },
             8 => unsafe { write_u64(self.regs.cast().as_ptr(), convert(value)) },
             _ => unsafe { write_slice(self.regs.cast(), value.as_bytes()) },
+        }
+    }
+}
+
+impl<T: FromBytes + IntoBytes> SharedMmioPointer<'_, T> {
+    /// Performs an MMIO read and returns the value.
+    ///
+    /// If `T` is exactly 1, 2, 4 or 8 bytes long then this will be a single operation. Otherwise
+    /// it will be split into several, reading chunks as large as possible.
+    ///
+    /// # Safety
+    ///
+    /// This field must be safe to perform an MMIO read from, and doing so must not cause any
+    /// side-effects.
+    pub unsafe fn read_unsafe(&self) -> T {
+        unsafe { mmio_read(self.regs) }
+    }
+}
+
+/// Performs an MMIO read and returns the value.
+///
+/// # Safety
+///
+/// The pointer must be valid to perform an MMIO read from.
+unsafe fn mmio_read<T: FromBytes + IntoBytes>(ptr: NonNull<T>) -> T {
+    match size_of::<T>() {
+        1 => convert(unsafe { read_u8(ptr.cast().as_ptr()) }),
+        2 => convert(unsafe { read_u16(ptr.cast().as_ptr()) }),
+        4 => convert(unsafe { read_u32(ptr.cast().as_ptr()) }),
+        8 => convert(unsafe { read_u64(ptr.cast().as_ptr()) }),
+        _ => {
+            let mut value = T::new_zeroed();
+            unsafe { read_slice(ptr.cast(), value.as_mut_bytes()) };
+            value
         }
     }
 }
