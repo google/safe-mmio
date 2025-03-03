@@ -21,17 +21,17 @@ use zerocopy::{FromBytes, Immutable, IntoBytes};
 /// Wrapper for a field which may safely be read but not written.
 #[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
 #[repr(transparent)]
-pub struct ReadOnly<T>(T);
+pub struct ReadOnly<T>(pub T);
 
 /// Wrapper for a field which may safely be written but not read.
 #[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
 #[repr(transparent)]
-pub struct WriteOnly<T>(T);
+pub struct WriteOnly<T>(pub T);
 
 /// Wrapper for a field which may safely be written and read.
 #[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
 #[repr(transparent)]
-pub struct ReadWrite<T>(T);
+pub struct ReadWrite<T>(pub T);
 
 /// A unique owned pointer to the registers of some MMIO device.
 ///
