@@ -91,14 +91,16 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     }
 }
 
-impl<T: FromBytes + Immutable + IntoBytes> UniqueMmioPointer<'_, ReadWrite<T>> {
+impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, ReadWrite<T>> {
     /// Performs an MMIO read of the entire `T`.
     pub fn read(&self) -> T {
         // SAFETY: self.regs is always a valid and unique pointer to MMIO address space, and `T`
         // being wrapped in `ReadWrite` implies that it is safe to read.
         unsafe { self.read_unsafe().0 }
     }
+}
 
+impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, ReadWrite<T>> {
     /// Performs an MMIO write of the entire `T`.
     pub fn write(&mut self, value: T) {
         // SAFETY: self.regs is always a valid and unique pointer to MMIO address space, and `T`
