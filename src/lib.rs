@@ -16,20 +16,20 @@ mod volatile_mmio;
 
 use core::{array, fmt::Debug, marker::PhantomData, ptr::NonNull};
 pub use physical::PhysicalInstance;
-use zerocopy::{FromBytes, Immutable, IntoBytes};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 /// Wrapper for a field which may safely be read but not written.
-#[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
+#[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq)]
 #[repr(transparent)]
 pub struct ReadOnly<T>(pub T);
 
 /// Wrapper for a field which may safely be written but not read.
-#[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
+#[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq)]
 #[repr(transparent)]
 pub struct WriteOnly<T>(pub T);
 
 /// Wrapper for a field which may safely be written and read.
-#[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
+#[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq)]
 #[repr(transparent)]
 pub struct ReadWrite<T>(pub T);
 
