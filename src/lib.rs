@@ -19,12 +19,12 @@ pub use physical::PhysicalInstance;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// Wrapper for a field which may safely be read but not written.
-#[derive(Clone, Debug, Eq, FromBytes, IntoBytes, PartialEq)]
+#[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
 #[repr(transparent)]
 pub struct ReadOnly<T>(T);
 
 /// Wrapper for a field which may safely be written but not read.
-#[derive(Clone, Debug, Eq, Immutable, IntoBytes, PartialEq)]
+#[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
 #[repr(transparent)]
 pub struct WriteOnly<T>(T);
 
