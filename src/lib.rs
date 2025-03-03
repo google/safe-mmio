@@ -24,6 +24,11 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 #[repr(transparent)]
 pub struct ReadOnly<T>(pub T);
 
+/// Wrapper for a field which may safely be read with no side-effects but not written.
+#[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq)]
+#[repr(transparent)]
+pub struct ReadPure<T>(pub T);
+
 /// Wrapper for a field which may safely be written but not read.
 #[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq)]
 #[repr(transparent)]
@@ -34,6 +39,12 @@ pub struct WriteOnly<T>(pub T);
 #[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq)]
 #[repr(transparent)]
 pub struct ReadWrite<T>(pub T);
+
+/// Wrapper for a field which may safely be written (with side-effects) and read with no
+/// side-effects.
+#[derive(Clone, Debug, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
+#[repr(transparent)]
+pub struct ReadPureWrite<T>(pub T);
 
 /// A unique owned pointer to the registers of some MMIO device.
 ///
@@ -101,6 +112,17 @@ impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, ReadWrite<T>> {
         // being wrapped in `ReadWrite` implies that it is safe to write.
         unsafe {
             self.write_unsafe(ReadWrite(value));
+        }
+    }
+}
+
+impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, ReadPureWrite<T>> {
+    /// Performs an MMIO write of the entire `T`.
+    pub fn write(&mut self, value: T) {
+        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space, and `T`
+        // being wrapped in `ReadPureWrite` implies that it is safe to write.
+        unsafe {
+            self.write_unsafe(ReadPureWrite(value));
         }
     }
 }
@@ -232,6 +254,26 @@ impl<'a, T: ?Sized> From<UniqueMmioPointer<'a, T>> for SharedMmioPointer<'a, T> 
     }
 }
 
+impl<T: FromBytes + IntoBytes> SharedMmioPointer<'_, ReadPure<T>> {
+    /// Performs an MMIO read of the entire `T`.
+    pub fn read(&self) -> T {
+        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space, and `T`
+        // being wrapped in `ReadPure` implies that it is safe to read from a shared reference
+        // because doing so has no side-effects.
+        unsafe { self.read_unsafe().0 }
+    }
+}
+
+impl<T: FromBytes + IntoBytes> SharedMmioPointer<'_, ReadPureWrite<T>> {
+    /// Performs an MMIO read of the entire `T`.
+    pub fn read(&self) -> T {
+        // SAFETY: self.regs is always a valid pointer to MMIO address space, and `T`
+        // being wrapped in `ReadPureWrite` implies that it is safe to read from a shared reference
+        // because doing so has no side-effects.
+        unsafe { self.read_unsafe().0 }
+    }
+}
+
 impl<T> SharedMmioPointer<'_, [T]> {
     /// Returns a `SharedMmioPointer` to an element of this slice, or `None` if the index is out of
     /// bounds.
@@ -312,20 +354,68 @@ mod tests {
     fn fields() {
         struct Foo {
             a: ReadWrite<u32>,
-            b: ReadWrite<u32>,
+            b: ReadOnly<u32>,
+            c: ReadPure<u32>,
         }
 
         let mut foo = Foo {
             a: ReadWrite(1),
-            b: ReadWrite(2),
+            b: ReadOnly(2),
+            c: ReadPure(3),
         };
         let mut owned: UniqueMmioPointer<Foo> = UniqueMmioPointer::from(&mut foo);
 
         let mut owned_a: UniqueMmioPointer<ReadWrite<u32>> = field!(owned, a);
         assert_eq!(owned_a.read(), 1);
+        owned_a.write(42);
+        assert_eq!(owned_a.read(), 42);
 
-        let mut owned_b: UniqueMmioPointer<ReadWrite<u32>> = field!(owned, b);
+        let mut owned_b: UniqueMmioPointer<ReadOnly<u32>> = field!(owned, b);
         assert_eq!(owned_b.read(), 2);
+
+        let owned_c: UniqueMmioPointer<ReadPure<u32>> = field!(owned, c);
+        assert_eq!(owned_c.read(), 3);
+    }
+
+    #[test]
+    fn shared_fields() {
+        struct Foo {
+            a: ReadPureWrite<u32>,
+            b: ReadPure<u32>,
+        }
+
+        let foo = Foo {
+            a: ReadPureWrite(1),
+            b: ReadPure(2),
+        };
+        let shared: SharedMmioPointer<Foo> = SharedMmioPointer::from(&foo);
+
+        let shared_a: SharedMmioPointer<ReadPureWrite<u32>> = field_shared!(shared, a);
+        assert_eq!(shared_a.read(), 1);
+        assert_eq!(field_shared!(shared, a).read(), 1);
+
+        let shared_b: SharedMmioPointer<ReadPure<u32>> = field_shared!(shared, b);
+        assert_eq!(shared_b.read(), 2);
+    }
+
+    #[test]
+    fn shared_from_unique() {
+        struct Foo {
+            a: ReadPureWrite<u32>,
+            b: ReadPure<u32>,
+        }
+
+        let mut foo = Foo {
+            a: ReadPureWrite(1),
+            b: ReadPure(2),
+        };
+        let unique: UniqueMmioPointer<Foo> = UniqueMmioPointer::from(&mut foo);
+
+        let shared_a: SharedMmioPointer<ReadPureWrite<u32>> = field_shared!(unique, a);
+        assert_eq!(shared_a.read(), 1);
+
+        let shared_b: SharedMmioPointer<ReadPure<u32>> = field_shared!(unique, b);
+        assert_eq!(shared_b.read(), 2);
     }
 
     #[test]
@@ -370,6 +460,17 @@ mod tests {
     }
 
     #[test]
+    fn array_shared() {
+        let foo = [ReadPure(1), ReadPure(2), ReadPure(3)];
+        let shared = SharedMmioPointer::from(&foo);
+
+        let parts = shared.split();
+        assert_eq!(parts[0].read(), 1);
+        assert_eq!(parts[1].read(), 2);
+        assert_eq!(shared.split()[2].read(), 3);
+    }
+
+    #[test]
     fn slice() {
         let mut foo = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
         let mut owned = UniqueMmioPointer::from(foo.as_mut_slice());
@@ -387,5 +488,24 @@ mod tests {
         assert_eq!(second.read(), 2);
 
         assert!(owned.get(3).is_none());
+    }
+
+    #[test]
+    fn slice_shared() {
+        let foo = [ReadPure(1), ReadPure(2), ReadPure(3)];
+        let shared = SharedMmioPointer::from(foo.as_slice());
+
+        assert!(!shared.ptr().is_null());
+
+        assert!(!shared.is_empty());
+        assert_eq!(shared.len(), 3);
+
+        let first: SharedMmioPointer<ReadPure<i32>> = shared.get(0).unwrap();
+        assert_eq!(first.read(), 1);
+
+        let second: SharedMmioPointer<ReadPure<i32>> = shared.get(1).unwrap();
+        assert_eq!(second.read(), 2);
+
+        assert!(shared.get(3).is_none());
     }
 }
