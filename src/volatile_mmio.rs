@@ -2,7 +2,7 @@
 // This project is dual-licensed under Apache 2.0 and MIT terms.
 // See LICENSE-APACHE and LICENSE-MIT for details.
 
-use crate::UniqueMmioPointer;
+use crate::{SharedMmioPointer, UniqueMmioPointer};
 
 impl<T> UniqueMmioPointer<'_, T> {
     /// Performs an MMIO read of the entire `T`.
@@ -28,5 +28,18 @@ impl<T> UniqueMmioPointer<'_, T> {
         unsafe {
             self.regs.write_volatile(value);
         }
+    }
+}
+
+impl<T> SharedMmioPointer<'_, T> {
+    /// Performs an MMIO read of the entire `T`.
+    ///
+    /// # Safety
+    ///
+    /// This field must be safe to perform an MMIO read from, and doing so must not cause any
+    /// side-effects.
+    pub unsafe fn read_unsafe(&self) -> T {
+        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
+        unsafe { self.regs.read_volatile() }
     }
 }
