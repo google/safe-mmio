@@ -9,14 +9,16 @@ impl<T> UniqueMmioPointer<'_, T> {
     ///
     /// # Safety
     ///
-    /// This field must be safe to perform an MMIO read from, and doing so must not cause any
-    /// side-effects.
-    pub unsafe fn read_unsafe(&self) -> T {
+    /// This field must be safe to perform an MMIO read from.
+    pub unsafe fn read_unsafe(&mut self) -> T {
         // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
         unsafe { self.regs.read_volatile() }
     }
 
     /// Performs an MMIO write of the entire `T`.
+    ///
+    /// Note that this takes `&mut self` rather than `&self` because an MMIO read may cause
+    /// side-effects that change the state of the device.
     ///
     /// # Safety
     ///

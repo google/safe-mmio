@@ -67,11 +67,13 @@ impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, T> {
     /// If `T` is exactly 1, 2, 4 or 8 bytes long then this will be a single operation. Otherwise
     /// it will be split into several, reading chunks as large as possible.
     ///
+    /// Note that this takes `&mut self` rather than `&self` because an MMIO read may cause
+    /// side-effects that change the state of the device.
+    ///
     /// # Safety
     ///
-    /// This field must be safe to perform an MMIO read from, and doing so must not cause any
-    /// side-effects.
-    pub unsafe fn read_unsafe(&self) -> T {
+    /// This field must be safe to perform an MMIO read from.
+    pub unsafe fn read_unsafe(&mut self) -> T {
         match size_of::<T>() {
             1 => convert(unsafe { read_u8(self.regs.cast().as_ptr()) }),
             2 => convert(unsafe { read_u16(self.regs.cast().as_ptr()) }),
