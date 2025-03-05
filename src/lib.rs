@@ -343,12 +343,15 @@ mod tests {
         assert_eq!(owned_a.read(), 1);
         owned_a.write(42);
         assert_eq!(owned_a.read(), 42);
+        field!(owned, a).write(44);
+        assert_eq!(field!(owned, a).read(), 44);
 
         let mut owned_b: UniqueMmioPointer<ReadOnly<u32>> = field!(owned, b);
         assert_eq!(owned_b.read(), 2);
 
         let owned_c: UniqueMmioPointer<ReadPure<u32>> = field!(owned, c);
         assert_eq!(owned_c.read(), 3);
+        assert_eq!(field!(owned, c).read(), 3);
     }
 
     #[test]
