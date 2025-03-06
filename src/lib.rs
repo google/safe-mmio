@@ -252,7 +252,7 @@ impl<T: ?Sized> SharedMmioPointer<'_, T> {
 // SAFETY: A `SharedMmioPointer` always originates either from a reference or from a
 // `UniqueMmioPointer`. The caller of `UniqueMmioPointer::new` promises that the MMIO registers can
 // be accessed from any thread.
-unsafe impl<T: Send + Sync> Send for SharedMmioPointer<'_, T> {}
+unsafe impl<T: ?Sized + Send + Sync> Send for SharedMmioPointer<'_, T> {}
 
 impl<'a, T: ?Sized> From<&'a T> for SharedMmioPointer<'a, T> {
     fn from(r: &'a T) -> Self {
