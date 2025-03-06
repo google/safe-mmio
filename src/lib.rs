@@ -16,7 +16,7 @@ mod physical;
 mod volatile_mmio;
 
 use crate::fields::{ReadOnly, ReadPure, ReadPureWrite, ReadWrite, WriteOnly};
-use core::{array, fmt::Debug, marker::PhantomData, ops::Deref, ptr::NonNull};
+use core::{array, fmt::Debug, marker::PhantomData, ops::Deref, ptr, ptr::NonNull};
 pub use physical::PhysicalInstance;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -27,8 +27,26 @@ use zerocopy::{FromBytes, Immutable, IntoBytes};
 ///
 /// A `UniqueMmioPointer` may be created from a mutable reference, but this should only be used for
 /// testing purposes, as references should never be constructed for real MMIO address space.
-#[derive(Debug, Eq, PartialEq)]
 pub struct UniqueMmioPointer<'a, T: ?Sized>(SharedMmioPointer<'a, T>);
+
+// Implement Debug, Eq and PartialEq manually rather than deriving to avoid an unneccessary bound on
+// T.
+
+impl<T: ?Sized> Debug for UniqueMmioPointer<'_, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("UniqueMmioPointer")
+            .field(&self.0.regs)
+            .finish()
+    }
+}
+
+impl<T: ?Sized> PartialEq for UniqueMmioPointer<'_, T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T: ?Sized> Eq for UniqueMmioPointer<'_, T> {}
 
 impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     /// Creates a new `UniqueMmioPointer` from a non-null raw pointer.
@@ -171,11 +189,29 @@ impl<'a, T: ?Sized> Deref for UniqueMmioPointer<'a, T> {
 /// A shared pointer to the registers of some MMIO device.
 ///
 /// It is guaranteed to be valid but unlike [`UniqueMmioPointer`] may not be unique.
-#[derive(Debug, Eq, PartialEq)]
 pub struct SharedMmioPointer<'a, T: ?Sized> {
     regs: NonNull<T>,
     phantom: PhantomData<&'a T>,
 }
+
+// Implement Debug, Eq and PartialEq manually rather than deriving to avoid an unneccessary bound on
+// T.
+
+impl<T: ?Sized> Debug for SharedMmioPointer<'_, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("SharedMmioPointer")
+            .field(&self.regs)
+            .finish()
+    }
+}
+
+impl<T: ?Sized> PartialEq for SharedMmioPointer<'_, T> {
+    fn eq(&self, other: &Self) -> bool {
+        ptr::eq(self.regs.as_ptr(), other.regs.as_ptr())
+    }
+}
+
+impl<T: ?Sized> Eq for SharedMmioPointer<'_, T> {}
 
 impl<T: ?Sized> Clone for SharedMmioPointer<'_, T> {
     fn clone(&self) -> Self {
