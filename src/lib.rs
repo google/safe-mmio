@@ -86,6 +86,11 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     pub fn ptr_mut(&mut self) -> *mut T {
         self.0.regs.as_ptr()
     }
+
+    /// Returns a `NonNull<T>` pointer to the MMIO registers.
+    pub fn ptr_nonnull(&mut self) -> NonNull<T> {
+        self.0.regs
+    }
 }
 
 impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, ReadWrite<T>> {
