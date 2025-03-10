@@ -7,6 +7,92 @@ This crate provides types for safe MMIO device access, especially in systems wit
 
 This is not an officially supported Google product.
 
+## Usage
+
+### UniqueMmioPointer
+
+The main type provided by this crate is `UniqueMmioPointer`. A `UniqueMmioPointer<T>` is roughly
+equivalent to an `&mut T` for a memory-mapped IO device. Suppose you want to construct a pointer to
+the data register of some UART device, and write some character to it:
+
+```rust
+use core::ptr::NonNull;
+use safe_mmio::UniqueMmioPointer;
+
+let mut data_register =
+    unsafe { UniqueMmioPointer::<u8>::new(NonNull::new(0x900_0000 as _).unwrap()) };
+unsafe {
+    data_register.write_unsafe(b'x');
+}
+```
+
+Depending on your platform this will either use `write_volatile` or some platform-dependent inline
+assembly to perform the MMIO write.
+
+### Safe MMIO methods
+
+If you know that a particular MMIO field is safe to access, you can use the appropriate wrapper type
+to mark that. In this case, suppose that the UART data register should only be written to:
+
+```rust
+use core::ptr::NonNull;
+use safe_mmio::{fields::WriteOnly, UniqueMmioPointer};
+
+let mut data_register: UniqueMmioPointer<WriteOnly<u8>> =
+    unsafe { UniqueMmioPointer::new(NonNull::new(0x900_0000 as _).unwrap()) };
+data_register.write(b'x');
+```
+
+### Grouping registers with a struct
+
+In practice, most devices have more than one register. To model this, you can create a struct, and
+then use the `field!` macro to project from a `UniqueMmioPointer` to the struct to a pointer to one
+of its fields:
+
+```rust
+use core::ptr::NonNull;
+use safe_mmio::{
+    field,
+    fields::{ReadOnly, ReadPure, ReadWrite, WriteOnly},
+    UniqueMmioPointer,
+};
+
+#[repr(C, align(4))]
+struct UartRegisters {
+    data: ReadWrite<u8>,
+    _padding: [u8; 3],
+    status: ReadPure<u32>,
+    pending_interrupt: ReadOnly<u32>,
+}
+
+let mut uart_registers: UniqueMmioPointer<UartRegisters> =
+    unsafe { UniqueMmioPointer::new(NonNull::new(0x900_0000 as _).unwrap()) };
+field!(uart_registers, data).write(b'x');
+```
+
+Methods are also provided to go from a `UniqueMmioPointer` to an array or slice to its elements.
+
+### Pure reads vs. side-effects
+
+We distinguish between fields which for which MMIO reads may have side effects (e.g. popping a byte
+from the UART's receive FIFO or clearing an interrupt status) and those for which reads are 'pure'
+with no side-effects. Reading from a `ReadOnly` or `ReadWrite` field is assumed to have
+side-effects, whereas reading from a `ReadPure` or `ReadPureWrite` must not. Reading from a
+`ReadOnly` or `ReadWrite` field requires an `&mut UniqueMmioPointer` (the same as writing), whereas
+reading from a `ReadPure` or `ReadPureWrite` field can be done with an `&UniqueMmioPointer` or
+`&SharedMmioPointer`.
+
+### Physical addresses
+
+`UniqueMmioPointer` (and `SharedMmioPointer`) is used for a pointer to a device which is mapped into
+the page table and accessible, i.e. a virtual address. Sometimes you may want to deal with the
+physical address of a device, which may or may not be mapped in. For this you can use the
+`PhysicalInstance` type. A `PhysicalInstance` doesn't let you do anything other than get the
+physical address and size of the device's MMIO region, but is intended to convey ownership. There
+should never be more than one `PhysicalInstance` pointer to the same device. This way your page
+table management code can take a `PhysicalInstance<T>` and return a `UniqueMmioPointer<T>` when a
+device is mapped into the page table.
+
 ## Comparison with other MMIO crates
 
 There are a number of things that distinguish this crate from other crates providing abstractions
