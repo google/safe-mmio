@@ -57,12 +57,11 @@ use safe_mmio::{
     UniqueMmioPointer,
 };
 
-#[repr(C, align(4))]
+#[repr(C)]
 struct UartRegisters {
     data: ReadWrite<u8>,
-    _padding: [u8; 3],
-    status: ReadPure<u32>,
-    pending_interrupt: ReadOnly<u32>,
+    status: ReadPure<u8>,
+    pending_interrupt: ReadOnly<u8>,
 }
 
 let mut uart_registers: UniqueMmioPointer<UartRegisters> =
