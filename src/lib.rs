@@ -147,6 +147,18 @@ impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, WriteOnly<T>> {
 impl<T> UniqueMmioPointer<'_, [T]> {
     /// Returns a `UniqueMmioPointer` to an element of this slice, or `None` if the index is out of
     /// bounds.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use safe_mmio::{UniqueMmioPointer, fields::ReadWrite};
+    ///
+    /// let mut slice: UniqueMmioPointer<[ReadWrite<u32>]>;
+    /// # let mut fake = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+    /// # slice = UniqueMmioPointer::from(fake.as_mut_slice());
+    /// let mut element = slice.get(1).unwrap();
+    /// element.write(42);
+    /// ```
     pub fn get(&mut self, index: usize) -> Option<UniqueMmioPointer<T>> {
         if index >= self.len() {
             return None;
