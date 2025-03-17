@@ -147,6 +147,18 @@ impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, WriteOnly<T>> {
 impl<T> UniqueMmioPointer<'_, [T]> {
     /// Returns a `UniqueMmioPointer` to an element of this slice, or `None` if the index is out of
     /// bounds.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use safe_mmio::{UniqueMmioPointer, fields::ReadWrite};
+    ///
+    /// let mut slice: UniqueMmioPointer<[ReadWrite<u32>]>;
+    /// # let mut fake = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+    /// # slice = UniqueMmioPointer::from(fake.as_mut_slice());
+    /// let mut element = slice.get(1).unwrap();
+    /// element.write(42);
+    /// ```
     pub fn get(&mut self, index: usize) -> Option<UniqueMmioPointer<T>> {
         if index >= self.len() {
             return None;
@@ -167,10 +179,36 @@ impl<T, const LEN: usize> UniqueMmioPointer<'_, [T; LEN]> {
             UniqueMmioPointer(SharedMmioPointer {
                 // SAFETY: self.regs is always unique and valid for MMIO access. We make sure the
                 // pointers we split it into don't overlap, so the same applies to each of them.
-                regs: NonNull::new(unsafe { &raw mut (*self.regs.as_ptr())[i] }).unwrap(),
+                regs: NonNull::new(unsafe { &raw mut (*self.ptr_mut())[i] }).unwrap(),
                 phantom: PhantomData,
             })
         })
+    }
+
+    /// Returns a `UniqueMmioPointer` to an element of this array, or `None` if the index is out of
+    /// bounds.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use safe_mmio::{UniqueMmioPointer, fields::ReadWrite};
+    ///
+    /// let mut slice: UniqueMmioPointer<[ReadWrite<u32>; 3]>;
+    /// # let mut fake = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+    /// # slice = UniqueMmioPointer::from(&mut fake);
+    /// let mut element = slice.get(1).unwrap();
+    /// element.write(42);
+    /// ```
+    pub fn get(&mut self, index: usize) -> Option<UniqueMmioPointer<T>> {
+        if index >= LEN {
+            return None;
+        }
+        // SAFETY: self.ptr_mut() is guaranteed to return a pointer that is valid for MMIO and
+        // unique, as promised by the caller of `UniqueMmioPointer::new`.
+        let regs = NonNull::new(unsafe { &raw mut (*self.ptr_mut())[index] }).unwrap();
+        // SAFETY: We created regs from the raw array in self.regs, so it must also be valid, unique
+        // and within the allocation of self.regs.
+        Some(unsafe { self.child(regs) })
     }
 }
 
@@ -323,6 +361,19 @@ impl<T, const LEN: usize> SharedMmioPointer<'_, [T; LEN]> {
             regs: NonNull::new(unsafe { &raw mut (*self.regs.as_ptr())[i] }).unwrap(),
             phantom: PhantomData,
         })
+    }
+
+    /// Returns a `SharedMmioPointer` to an element of this array, or `None` if the index is out of
+    /// bounds.
+    pub fn get(&self, index: usize) -> Option<SharedMmioPointer<T>> {
+        if index >= LEN {
+            return None;
+        }
+        // SAFETY: self.regs is always unique and valid for MMIO access.
+        let regs = NonNull::new(unsafe { &raw mut (*self.regs.as_ptr())[index] }).unwrap();
+        // SAFETY: We created regs from the raw array in self.regs, so it must also be valid, unique
+        // and within the allocation of self.regs.
+        Some(unsafe { self.child(regs) })
     }
 }
 

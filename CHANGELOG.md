@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### New features
+
+- Added `get` method to `UniqueMmioPointer<[T; N]>` and `SharedMmioPointer<[T; N]>`.
+
 ## 0.2.0
 
 ### Breaking changes
