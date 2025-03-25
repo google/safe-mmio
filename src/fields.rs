@@ -30,6 +30,6 @@ pub struct ReadWrite<T>(pub T);
 
 /// Wrapper for a field which may safely be written (with side-effects) and read with no
 /// side-effects.
-#[derive(Clone, Debug, Default, Eq, FromBytes, Immutable, IntoBytes, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq)]
 #[repr(transparent)]
 pub struct ReadPureWrite<T>(pub T);
