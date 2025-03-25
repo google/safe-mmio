@@ -418,6 +418,7 @@ mod tests {
 
     #[test]
     fn fields() {
+        #[repr(C)]
         struct Foo {
             a: ReadWrite<u32>,
             b: ReadOnly<u32>,
@@ -448,6 +449,7 @@ mod tests {
 
     #[test]
     fn shared_fields() {
+        #[repr(C)]
         struct Foo {
             a: ReadPureWrite<u32>,
             b: ReadPure<u32>,
@@ -469,6 +471,7 @@ mod tests {
 
     #[test]
     fn shared_from_unique() {
+        #[repr(C)]
         struct Foo {
             a: ReadPureWrite<u32>,
             b: ReadPure<u32>,
@@ -489,6 +492,7 @@ mod tests {
 
     #[test]
     fn restricted_fields() {
+        #[repr(C)]
         struct Foo {
             r: ReadOnly<u32>,
             w: WriteOnly<u32>,
