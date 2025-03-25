@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Bugfixes
+
+- Implemented `KnownLayout` for `ReadPureWrite`. This was missed accidentally before.
+
 ## 0.2.1
 
 ### New features
