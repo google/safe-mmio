@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Improvements
+
+- Made many methods `const`, in particular:
+  - `SharedMmioPointer::child`
+  - `SharedMmioPointer::get`
+  - `SharedMmioPointer::new`
+  - `SharedMmioPointer::ptr`
+  - `UniqueMmioPointer::child`
+  - `UniqueMmioPointer::get`
+  - `UniqueMmioPointer::new`
+  - `UniqueMmioPointer::ptr_mut`
+  - `UniqueMmioPointer::ptr_nonnull`
+
 ## 0.2.2
 
 ### Bugfixes

@@ -60,7 +60,7 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     ///
     /// If `T` contains any fields wrapped in [`ReadOnly`], [`WriteOnly`] or [`ReadWrite`] then they
     /// must indeed be safe to perform MMIO reads or writes on.
-    pub unsafe fn new(regs: NonNull<T>) -> Self {
+    pub const unsafe fn new(regs: NonNull<T>) -> Self {
         Self(SharedMmioPointer {
             regs,
             phantom: PhantomData,
@@ -75,7 +75,7 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     ///
     /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
     /// within the allocation that `self` points to.
-    pub unsafe fn child<U>(&mut self, regs: NonNull<U>) -> UniqueMmioPointer<U> {
+    pub const unsafe fn child<U>(&mut self, regs: NonNull<U>) -> UniqueMmioPointer<U> {
         UniqueMmioPointer(SharedMmioPointer {
             regs,
             phantom: PhantomData,
@@ -83,12 +83,12 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     }
 
     /// Returns a raw mut pointer to the MMIO registers.
-    pub fn ptr_mut(&mut self) -> *mut T {
+    pub const fn ptr_mut(&mut self) -> *mut T {
         self.0.regs.as_ptr()
     }
 
     /// Returns a `NonNull<T>` pointer to the MMIO registers.
-    pub fn ptr_nonnull(&mut self) -> NonNull<T> {
+    pub const fn ptr_nonnull(&mut self) -> NonNull<T> {
         self.0.regs
     }
 }
@@ -159,8 +159,8 @@ impl<T> UniqueMmioPointer<'_, [T]> {
     /// let mut element = slice.get(1).unwrap();
     /// element.write(42);
     /// ```
-    pub fn get(&mut self, index: usize) -> Option<UniqueMmioPointer<T>> {
-        if index >= self.len() {
+    pub const fn get(&mut self, index: usize) -> Option<UniqueMmioPointer<T>> {
+        if index >= self.0.len() {
             return None;
         }
         // SAFETY: self.ptr_mut() is guaranteed to return a pointer that is valid for MMIO and
@@ -199,7 +199,7 @@ impl<T, const LEN: usize> UniqueMmioPointer<'_, [T; LEN]> {
     /// let mut element = slice.get(1).unwrap();
     /// element.write(42);
     /// ```
-    pub fn get(&mut self, index: usize) -> Option<UniqueMmioPointer<T>> {
+    pub const fn get(&mut self, index: usize) -> Option<UniqueMmioPointer<T>> {
         if index >= LEN {
             return None;
         }
@@ -274,7 +274,7 @@ impl<T: ?Sized> SharedMmioPointer<'_, T> {
     ///
     /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
     /// within the allocation that `self` points to.
-    pub unsafe fn child<U>(&self, regs: NonNull<U>) -> SharedMmioPointer<U> {
+    pub const unsafe fn child<U>(&self, regs: NonNull<U>) -> SharedMmioPointer<U> {
         SharedMmioPointer {
             regs,
             phantom: PhantomData,
@@ -282,7 +282,7 @@ impl<T: ?Sized> SharedMmioPointer<'_, T> {
     }
 
     /// Returns a raw const pointer to the MMIO registers.
-    pub fn ptr(&self) -> *const T {
+    pub const fn ptr(&self) -> *const T {
         self.regs.as_ptr()
     }
 }
@@ -330,7 +330,7 @@ impl<T: FromBytes + IntoBytes> SharedMmioPointer<'_, ReadPureWrite<T>> {
 impl<T> SharedMmioPointer<'_, [T]> {
     /// Returns a `SharedMmioPointer` to an element of this slice, or `None` if the index is out of
     /// bounds.
-    pub fn get(&self, index: usize) -> Option<SharedMmioPointer<T>> {
+    pub const fn get(&self, index: usize) -> Option<SharedMmioPointer<T>> {
         if index >= self.len() {
             return None;
         }
@@ -365,7 +365,7 @@ impl<T, const LEN: usize> SharedMmioPointer<'_, [T; LEN]> {
 
     /// Returns a `SharedMmioPointer` to an element of this array, or `None` if the index is out of
     /// bounds.
-    pub fn get(&self, index: usize) -> Option<SharedMmioPointer<T>> {
+    pub const fn get(&self, index: usize) -> Option<SharedMmioPointer<T>> {
         if index >= LEN {
             return None;
         }
