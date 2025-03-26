@@ -259,8 +259,8 @@ impl<T: ?Sized> Eq for SharedMmioPointer<'_, T> {}
 impl<T: ?Sized> Clone for SharedMmioPointer<'_, T> {
     fn clone(&self) -> Self {
         Self {
-            regs: self.regs.clone(),
-            phantom: self.phantom.clone(),
+            regs: self.regs,
+            phantom: self.phantom,
         }
     }
 }
