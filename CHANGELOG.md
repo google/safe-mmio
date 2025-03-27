@@ -5,6 +5,8 @@
 ### Improvements
 
 - Made many methods `const`, in particular:
+  - `PhysicalInstance::new`
+  - `PhysicalInstance::pa`
   - `SharedMmioPointer::child`
   - `SharedMmioPointer::get`
   - `SharedMmioPointer::new`
