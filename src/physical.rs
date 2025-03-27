@@ -27,7 +27,7 @@ impl<T> PhysicalInstance<T> {
     ///
     /// This must refer to the physical address of a real set of device registers of type `T`, and
     /// there must only ever be a single `PhysicalInstance` created for those device registers.
-    pub unsafe fn new(pa: usize) -> Self {
+    pub const unsafe fn new(pa: usize) -> Self {
         Self {
             pa,
             _phantom: PhantomData,
@@ -35,7 +35,7 @@ impl<T> PhysicalInstance<T> {
     }
 
     /// Returns the physical base address of the device's registers.
-    pub fn pa(&self) -> usize {
+    pub const fn pa(&self) -> usize {
         self.pa
     }
 }
