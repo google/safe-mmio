@@ -8,6 +8,8 @@
   pointer to slice pointer.
 - Added implementations of `From` to convert from array pointers to slice pointers.
 - Added implementations of `From` to convert from pointers to `T` to pointers to `[T; 1]` or `[T]`.
+- Added `split_fields!` macro to split a `UniqueMmioPointer` to a struct into several
+  `UniqueMmioPointer`s to its fields.
 
 ## 0.2.3
 
