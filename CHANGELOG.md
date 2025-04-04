@@ -16,6 +16,8 @@
   - `UniqueMmioPointer::new`
   - `UniqueMmioPointer::ptr_mut`
   - `UniqueMmioPointer::ptr_nonnull`
+- Fixed `field!` and `field_shared!` to allow getting unsized fields (e.g. slices) of structs.
+- Added `UniqueMmioPointer::reborrow`.
 
 ## 0.2.2
 
