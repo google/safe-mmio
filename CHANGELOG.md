@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Improvements
+
+- Added `UniqueMmioPointer::as_mut_slice` and `SharedMmioPointer::as_slice` to convert from array
+  pointer to slice pointer.
+- Added implementations of `From` to convert from array pointers to slice pointers.
+- Added implementations of `From` to convert from pointers to `T` to pointers to `[T; 1]` or `[T]`.
+
 ## 0.2.3
 
 ### Improvements

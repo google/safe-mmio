@@ -193,6 +193,14 @@ impl<T, const LEN: usize> UniqueMmioPointer<'_, [T; LEN]> {
         })
     }
 
+    /// Converts this array pointer to an equivalent slice pointer.
+    pub const fn as_mut_slice(&mut self) -> UniqueMmioPointer<[T]> {
+        let regs = NonNull::new(self.ptr_mut()).unwrap();
+        // SAFETY: We created regs from the raw array in self.regs, so it must also be valid, unique
+        // and within the allocation of self.regs.
+        unsafe { self.child(regs) }
+    }
+
     /// Returns a `UniqueMmioPointer` to an element of this array, or `None` if the index is out of
     /// bounds.
     ///
@@ -217,6 +225,34 @@ impl<T, const LEN: usize> UniqueMmioPointer<'_, [T; LEN]> {
         // SAFETY: We created regs from the raw array in self.regs, so it must also be valid, unique
         // and within the allocation of self.regs.
         Some(unsafe { self.child(regs) })
+    }
+}
+
+impl<'a, T, const LEN: usize> From<UniqueMmioPointer<'a, [T; LEN]>> for UniqueMmioPointer<'a, [T]> {
+    fn from(mut value: UniqueMmioPointer<'a, [T; LEN]>) -> Self {
+        let regs = NonNull::new(value.ptr_mut()).unwrap();
+        // SAFETY: regs comes from a UniqueMmioPointer so already satisfies all the safety
+        // requirements.
+        unsafe { UniqueMmioPointer::new(regs) }
+    }
+}
+
+impl<'a, T> From<UniqueMmioPointer<'a, T>> for UniqueMmioPointer<'a, [T; 1]> {
+    fn from(mut value: UniqueMmioPointer<'a, T>) -> Self {
+        let regs = NonNull::new(value.ptr_mut()).unwrap().cast();
+        // SAFETY: regs comes from a UniqueMmioPointer so already satisfies all the safety
+        // requirements.
+        unsafe { UniqueMmioPointer::new(regs) }
+    }
+}
+
+impl<'a, T> From<UniqueMmioPointer<'a, T>> for UniqueMmioPointer<'a, [T]> {
+    fn from(mut value: UniqueMmioPointer<'a, T>) -> Self {
+        let array: *mut [T; 1] = value.ptr_mut().cast();
+        let regs = NonNull::new(array).unwrap();
+        // SAFETY: regs comes from a UniqueMmioPointer so already satisfies all the safety
+        // requirements.
+        unsafe { UniqueMmioPointer::new(regs) }
     }
 }
 
@@ -371,6 +407,14 @@ impl<T, const LEN: usize> SharedMmioPointer<'_, [T; LEN]> {
         })
     }
 
+    /// Converts this array pointer to an equivalent slice pointer.
+    pub const fn as_slice(&mut self) -> SharedMmioPointer<[T]> {
+        let regs = NonNull::new(self.regs.as_ptr()).unwrap();
+        // SAFETY: We created regs from the raw array in self.regs, so it must also be valid, unique
+        // and within the allocation of self.regs.
+        unsafe { self.child(regs) }
+    }
+
     /// Returns a `SharedMmioPointer` to an element of this array, or `None` if the index is out of
     /// bounds.
     pub const fn get(&self, index: usize) -> Option<SharedMmioPointer<T>> {
@@ -382,6 +426,37 @@ impl<T, const LEN: usize> SharedMmioPointer<'_, [T; LEN]> {
         // SAFETY: We created regs from the raw array in self.regs, so it must also be valid, unique
         // and within the allocation of self.regs.
         Some(unsafe { self.child(regs) })
+    }
+}
+
+impl<'a, T, const LEN: usize> From<SharedMmioPointer<'a, [T; LEN]>> for SharedMmioPointer<'a, [T]> {
+    fn from(value: SharedMmioPointer<'a, [T; LEN]>) -> Self {
+        let regs = NonNull::new(value.regs.as_ptr()).unwrap();
+        SharedMmioPointer {
+            regs,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a, T> From<SharedMmioPointer<'a, T>> for SharedMmioPointer<'a, [T; 1]> {
+    fn from(value: SharedMmioPointer<'a, T>) -> Self {
+        let regs = NonNull::new(value.regs.as_ptr()).unwrap().cast();
+        SharedMmioPointer {
+            regs,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a, T> From<SharedMmioPointer<'a, T>> for SharedMmioPointer<'a, [T]> {
+    fn from(value: SharedMmioPointer<'a, T>) -> Self {
+        let array: *mut [T; 1] = value.regs.as_ptr().cast();
+        let regs = NonNull::new(array).unwrap();
+        SharedMmioPointer {
+            regs,
+            phantom: PhantomData,
+        }
     }
 }
 
