@@ -75,7 +75,7 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     ///
     /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
     /// within the allocation that `self` points to.
-    pub const unsafe fn child<U>(&mut self, regs: NonNull<U>) -> UniqueMmioPointer<U> {
+    pub const unsafe fn child<U: ?Sized>(&mut self, regs: NonNull<U>) -> UniqueMmioPointer<U> {
         UniqueMmioPointer(SharedMmioPointer {
             regs,
             phantom: PhantomData,
@@ -274,7 +274,7 @@ impl<T: ?Sized> SharedMmioPointer<'_, T> {
     ///
     /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
     /// within the allocation that `self` points to.
-    pub const unsafe fn child<U>(&self, regs: NonNull<U>) -> SharedMmioPointer<U> {
+    pub const unsafe fn child<U: ?Sized>(&self, regs: NonNull<U>) -> SharedMmioPointer<U> {
         SharedMmioPointer {
             regs,
             phantom: PhantomData,
@@ -580,5 +580,45 @@ mod tests {
         assert_eq!(second.read(), 2);
 
         assert!(shared.get(3).is_none());
+    }
+
+    #[test]
+    fn array_field() {
+        #[repr(C)]
+        struct Regs {
+            a: [ReadPureWrite<u32>; 4],
+        }
+
+        let mut foo = Regs {
+            a: [const { ReadPureWrite(0) }; 4],
+        };
+        let mut owned: UniqueMmioPointer<Regs> = UniqueMmioPointer::from(&mut foo);
+
+        field!(owned, a).get(0).unwrap().write(42);
+        assert_eq!(field_shared!(owned, a).get(0).unwrap().read(), 42);
+    }
+
+    #[test]
+    fn slice_field() {
+        #[repr(transparent)]
+        struct Regs {
+            s: [ReadPureWrite<u32>],
+        }
+
+        impl Regs {
+            fn from_slice<'a>(slice: &'a mut [ReadPureWrite<u32>]) -> &'a mut Self {
+                let regs_ptr: *mut Self = slice as *mut [ReadPureWrite<u32>] as *mut Self;
+                // SAFETY: `Regs` is repr(transparent) so a reference to its field has the same
+                // metadata as a reference to `Regs``.
+                unsafe { &mut *regs_ptr }
+            }
+        }
+
+        let mut foo: [ReadPureWrite<u32>; 1] = [ReadPureWrite(0)];
+        let regs_mut = Regs::from_slice(foo.as_mut_slice());
+        let mut owned: UniqueMmioPointer<Regs> = UniqueMmioPointer::from(regs_mut);
+
+        field!(owned, s).get(0).unwrap().write(42);
+        assert_eq!(field_shared!(owned, s).get(0).unwrap().read(), 42);
     }
 }
