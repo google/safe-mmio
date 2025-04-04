@@ -91,6 +91,14 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     pub const fn ptr_nonnull(&mut self) -> NonNull<T> {
         self.0.regs
     }
+
+    /// Returns a new `UniqueMmioPointer` with a lifetime no greater than this one.
+    pub const fn reborrow(&mut self) -> UniqueMmioPointer<T> {
+        let ptr = self.ptr_nonnull();
+        // SAFETY: `ptr` must be properly aligned and valid and within our allocation because it is
+        // exactly our allocation.
+        unsafe { self.child(ptr) }
+    }
 }
 
 impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, ReadWrite<T>> {
