@@ -6,6 +6,7 @@
 
 - Added `UniqueMmioPointer::take` for arrays and slices, similar to `get` but taking ownership of
   the original pointer rather than borrowing it.
+- Added implementation of `From` to convert from pointer to array to array of pointers.
 
 ## 0.2.4
 

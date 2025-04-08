@@ -344,6 +344,19 @@ impl<'a, T> From<UniqueMmioPointer<'a, T>> for UniqueMmioPointer<'a, [T]> {
     }
 }
 
+impl<'a, T, const LEN: usize> From<UniqueMmioPointer<'a, [T; LEN]>>
+    for [UniqueMmioPointer<'a, T>; LEN]
+{
+    fn from(mut value: UniqueMmioPointer<'a, [T; LEN]>) -> Self {
+        array::from_fn(|i| {
+            let item_pointer = value.split()[i].ptr_mut();
+            // SAFETY: `split_child` is called only once on each item and the original
+            // `UniqueMmioPointer` is consumed by this function.
+            unsafe { value.split_child(core::ptr::NonNull::new(item_pointer).unwrap()) }
+        })
+    }
+}
+
 impl<'a, T: ?Sized> From<&'a mut T> for UniqueMmioPointer<'a, T> {
     fn from(r: &'a mut T) -> Self {
         Self(SharedMmioPointer {
@@ -846,5 +859,19 @@ mod tests {
         drop(second);
 
         assert_eq!(field!(owned, first).read(), 1);
+    }
+
+    #[test]
+    fn split_array() {
+        let mut foo = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+
+        let mut parts: [UniqueMmioPointer<ReadWrite<i32>>; 3] = {
+            let owned = UniqueMmioPointer::from(&mut foo);
+
+            owned.into()
+        };
+
+        assert_eq!(parts[0].read(), 1);
+        assert_eq!(parts[1].read(), 2);
     }
 }
