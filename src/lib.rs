@@ -101,6 +101,29 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     }
 }
 
+impl<'a, T: ?Sized> UniqueMmioPointer<'a, T> {
+    /// Creates a new `UniqueMmioPointer` with the same lifetime as this one, but not tied to the
+    /// lifetime this one is borrowed for.
+    ///
+    /// This is used internally by the [`split_fields!`] macro and shouldn't be called directly.
+    ///
+    /// # Safety
+    ///
+    /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
+    /// within the allocation that `self` points to. `split_child` must not be called for the same
+    /// child field more than once, and the original `UniqueMmioPointer` must not be used after
+    /// `split_child` has been called for one or more of its fields.
+    pub const unsafe fn split_child<U: ?Sized>(
+        &mut self,
+        regs: NonNull<U>,
+    ) -> UniqueMmioPointer<'a, U> {
+        UniqueMmioPointer(SharedMmioPointer {
+            regs,
+            phantom: PhantomData,
+        })
+    }
+}
+
 impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, ReadWrite<T>> {
     /// Performs an MMIO read of the entire `T`.
     pub fn read(&mut self) -> T {
@@ -477,6 +500,33 @@ macro_rules! field {
     }};
 }
 
+/// Gets `UniqueMmioPointer`s to several fields of a type wrapped in a `UniqueMmioPointer`.
+///
+/// # Safety
+///
+/// The same field name must not be passed more than once.
+#[macro_export]
+macro_rules! split_fields {
+    ($mmio_pointer:expr, $( $field:ident ),+) => {{
+        // Make sure $mmio_pointer is the right type, and take ownership of it.
+        let mut mmio_pointer: $crate::UniqueMmioPointer<_> = $mmio_pointer;
+        let pointer = mmio_pointer.ptr_mut();
+        let ret = (
+            $(
+                // SAFETY: ptr_mut is guaranteed to return a valid pointer for MMIO, so the pointer
+                // to the field must also be valid. MmioPointer::child gives it the same lifetime as
+                // the original pointer, and the caller of `split_fields!` promised not to pass the
+                // same field more than once.
+                {
+                    let child_pointer = core::ptr::NonNull::new(&raw mut (*pointer).$field).unwrap();
+                    mmio_pointer.split_child(child_pointer)
+                }
+            ),+
+        );
+        ret
+    }};
+}
+
 /// Gets a `SharedMmioPointer` to a field of a type wrapped in a `SharedMmioPointer`.
 #[macro_export]
 macro_rules! field_shared {
@@ -703,5 +753,33 @@ mod tests {
 
         field!(owned, s).get(0).unwrap().write(42);
         assert_eq!(field_shared!(owned, s).get(0).unwrap().read(), 42);
+    }
+
+    #[test]
+    fn multiple_fields() {
+        #[repr(C)]
+        struct Regs {
+            first: ReadPureWrite<u32>,
+            second: ReadPureWrite<u32>,
+            third: ReadPureWrite<u32>,
+        }
+
+        let mut foo = Regs {
+            first: ReadPureWrite(1),
+            second: ReadPureWrite(2),
+            third: ReadPureWrite(3),
+        };
+        let mut owned: UniqueMmioPointer<Regs> = UniqueMmioPointer::from(&mut foo);
+
+        // SAFETY: We don't pass the same field name more than once.
+        let (first, second) = unsafe { split_fields!(owned.reborrow(), first, second) };
+
+        assert_eq!(first.read(), 1);
+        assert_eq!(second.read(), 2);
+
+        drop(first);
+        drop(second);
+
+        assert_eq!(field!(owned, first).read(), 1);
     }
 }
