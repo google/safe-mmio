@@ -175,7 +175,7 @@ impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, WriteOnly<T>> {
     }
 }
 
-impl<T> UniqueMmioPointer<'_, [T]> {
+impl<'a, T> UniqueMmioPointer<'a, [T]> {
     /// Returns a `UniqueMmioPointer` to an element of this slice, or `None` if the index is out of
     /// bounds.
     ///
@@ -201,9 +201,41 @@ impl<T> UniqueMmioPointer<'_, [T]> {
         // and within the allocation of self.regs.
         Some(unsafe { self.child(regs) })
     }
+
+    /// Returns a `UniqueMmioPointer` to an element of this slice, or `None` if the index is out of
+    /// bounds.
+    ///
+    /// Unlike [`UniqueMmioPointer::get`] this takes ownership of the original pointer. This is
+    /// useful when you want to store the resulting pointer without keeping the original pointer
+    /// around.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use safe_mmio::{UniqueMmioPointer, fields::ReadWrite};
+    ///
+    /// let mut slice: UniqueMmioPointer<[ReadWrite<u32>]>;
+    /// # let mut fake = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+    /// # slice = UniqueMmioPointer::from(fake.as_mut_slice());
+    /// let mut element = slice.take(1).unwrap();
+    /// element.write(42);
+    /// // `slice` can no longer be used at this point.
+    /// ```
+    pub const fn take(mut self, index: usize) -> Option<UniqueMmioPointer<'a, T>> {
+        if index >= self.0.len() {
+            return None;
+        }
+        // SAFETY: self.ptr_mut() is guaranteed to return a pointer that is valid for MMIO and
+        // unique, as promised by the caller of `UniqueMmioPointer::new`.
+        let regs = NonNull::new(unsafe { &raw mut (*self.ptr_mut())[index] }).unwrap();
+        // SAFETY: We created regs from the raw slice in self.regs, so it must also be valid, unique
+        // and within the allocation of self.regs. `self` is dropped immediately after this and we
+        // don't split out any other children.
+        Some(unsafe { self.split_child(regs) })
+    }
 }
 
-impl<T, const LEN: usize> UniqueMmioPointer<'_, [T; LEN]> {
+impl<'a, T, const LEN: usize> UniqueMmioPointer<'a, [T; LEN]> {
     /// Splits a `UniqueMmioPointer` to an array into an array of `UniqueMmioPointer`s.
     pub fn split(&mut self) -> [UniqueMmioPointer<T>; LEN] {
         array::from_fn(|i| {
@@ -237,6 +269,7 @@ impl<T, const LEN: usize> UniqueMmioPointer<'_, [T; LEN]> {
     /// # slice = UniqueMmioPointer::from(&mut fake);
     /// let mut element = slice.get(1).unwrap();
     /// element.write(42);
+    /// slice.get(2).unwrap().write(100);
     /// ```
     pub const fn get(&mut self, index: usize) -> Option<UniqueMmioPointer<T>> {
         if index >= LEN {
@@ -248,6 +281,38 @@ impl<T, const LEN: usize> UniqueMmioPointer<'_, [T; LEN]> {
         // SAFETY: We created regs from the raw array in self.regs, so it must also be valid, unique
         // and within the allocation of self.regs.
         Some(unsafe { self.child(regs) })
+    }
+
+    /// Returns a `UniqueMmioPointer` to an element of this array, or `None` if the index is out of
+    /// bounds.
+    ///
+    /// Unlike [`UniqueMmioPointer::get`] this takes ownership of the original pointer. This is
+    /// useful when you want to store the resulting pointer without keeping the original pointer
+    /// around.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use safe_mmio::{UniqueMmioPointer, fields::ReadWrite};
+    ///
+    /// let mut array: UniqueMmioPointer<[ReadWrite<u32>; 3]>;
+    /// # let mut fake = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+    /// # array = UniqueMmioPointer::from(&mut fake);
+    /// let mut element = array.take(1).unwrap();
+    /// element.write(42);
+    /// // `array` can no longer be used at this point.
+    /// ```
+    pub const fn take(mut self, index: usize) -> Option<UniqueMmioPointer<'a, T>> {
+        if index >= LEN {
+            return None;
+        }
+        // SAFETY: self.ptr_mut() is guaranteed to return a pointer that is valid for MMIO and
+        // unique, as promised by the caller of `UniqueMmioPointer::new`.
+        let regs = NonNull::new(unsafe { &raw mut (*self.ptr_mut())[index] }).unwrap();
+        // SAFETY: We created regs from the raw array in self.regs, so it must also be valid, unique
+        // and within the allocation of self.regs. `self` is dropped immediately after this and we
+        // don't split out any other children.
+        Some(unsafe { self.split_child(regs) })
     }
 }
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Improvements
+
+- Added `UniqueMmioPointer::take` for arrays and slices, similar to `get` but taking ownership of
+  the original pointer rather than borrowing it.
+
 ## 0.2.4
 
 ### Improvements
