@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- Take `self` rather than `&self` for methods on `SharedMmioPointer`.
+
 ## 0.2.7
 
 ### Improvements
