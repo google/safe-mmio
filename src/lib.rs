@@ -403,12 +403,11 @@ impl<T: ?Sized> Eq for SharedMmioPointer<'_, T> {}
 
 impl<T: ?Sized> Clone for SharedMmioPointer<'_, T> {
     fn clone(&self) -> Self {
-        Self {
-            regs: self.regs,
-            phantom: self.phantom,
-        }
+        *self
     }
 }
+
+impl<T: ?Sized> Copy for SharedMmioPointer<'_, T> {}
 
 impl<T: ?Sized> SharedMmioPointer<'_, T> {
     /// Creates a new `SharedMmioPointer` with the same lifetime as this one.
