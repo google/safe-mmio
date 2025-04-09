@@ -409,7 +409,7 @@ impl<T: ?Sized> Clone for SharedMmioPointer<'_, T> {
 
 impl<T: ?Sized> Copy for SharedMmioPointer<'_, T> {}
 
-impl<T: ?Sized> SharedMmioPointer<'_, T> {
+impl<'a, T: ?Sized> SharedMmioPointer<'a, T> {
     /// Creates a new `SharedMmioPointer` with the same lifetime as this one.
     ///
     /// This is used internally by the [`field_shared!`] macro and shouldn't be called directly.
@@ -418,7 +418,7 @@ impl<T: ?Sized> SharedMmioPointer<'_, T> {
     ///
     /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
     /// within the allocation that `self` points to.
-    pub const unsafe fn child<U: ?Sized>(&self, regs: NonNull<U>) -> SharedMmioPointer<U> {
+    pub const unsafe fn child<U: ?Sized>(&self, regs: NonNull<U>) -> SharedMmioPointer<'a, U> {
         SharedMmioPointer {
             regs,
             phantom: PhantomData,
@@ -471,10 +471,10 @@ impl<T: FromBytes + IntoBytes> SharedMmioPointer<'_, ReadPureWrite<T>> {
     }
 }
 
-impl<T> SharedMmioPointer<'_, [T]> {
+impl<'a, T> SharedMmioPointer<'a, [T]> {
     /// Returns a `SharedMmioPointer` to an element of this slice, or `None` if the index is out of
     /// bounds.
-    pub const fn get(&self, index: usize) -> Option<SharedMmioPointer<T>> {
+    pub const fn get(&self, index: usize) -> Option<SharedMmioPointer<'a, T>> {
         if index >= self.len() {
             return None;
         }
@@ -496,9 +496,9 @@ impl<T> SharedMmioPointer<'_, [T]> {
     }
 }
 
-impl<T, const LEN: usize> SharedMmioPointer<'_, [T; LEN]> {
+impl<'a, T, const LEN: usize> SharedMmioPointer<'a, [T; LEN]> {
     /// Splits a `SharedMmioPointer` to an array into an array of `SharedMmioPointer`s.
-    pub fn split(&self) -> [SharedMmioPointer<T>; LEN] {
+    pub fn split(&self) -> [SharedMmioPointer<'a, T>; LEN] {
         array::from_fn(|i| SharedMmioPointer {
             // SAFETY: self.regs is always unique and valid for MMIO access. We make sure the
             // pointers we split it into don't overlap, so the same applies to each of them.
@@ -508,7 +508,7 @@ impl<T, const LEN: usize> SharedMmioPointer<'_, [T; LEN]> {
     }
 
     /// Converts this array pointer to an equivalent slice pointer.
-    pub const fn as_slice(&mut self) -> SharedMmioPointer<[T]> {
+    pub const fn as_slice(&self) -> SharedMmioPointer<'a, [T]> {
         let regs = NonNull::new(self.regs.as_ptr()).unwrap();
         // SAFETY: We created regs from the raw array in self.regs, so it must also be valid, unique
         // and within the allocation of self.regs.
@@ -517,7 +517,7 @@ impl<T, const LEN: usize> SharedMmioPointer<'_, [T; LEN]> {
 
     /// Returns a `SharedMmioPointer` to an element of this array, or `None` if the index is out of
     /// bounds.
-    pub const fn get(&self, index: usize) -> Option<SharedMmioPointer<T>> {
+    pub const fn get(&self, index: usize) -> Option<SharedMmioPointer<'a, T>> {
         if index >= LEN {
             return None;
         }
@@ -790,6 +790,14 @@ mod tests {
         assert_eq!(second.read(), 2);
 
         assert!(shared.get(3).is_none());
+
+        // Test that lifetime of pointer returned from `get` isn't tied to the lifetime of the slice
+        // pointer.
+        let second = {
+            let shared_copy = shared;
+            shared_copy.get(1).unwrap()
+        };
+        assert_eq!(second.read(), 2);
     }
 
     #[test]
