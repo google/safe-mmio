@@ -7,6 +7,10 @@
 - Added `UniqueMmioPointer::take` for arrays and slices, similar to `get` but taking ownership of
   the original pointer rather than borrowing it.
 - Added implementation of `From` to convert from pointer to array to array of pointers.
+- Implemented `Copy` for `SharedMmioPointer`.
+- Extended lifetimes of values returned from `SharedMmioPointer::as_slice`,
+  `SharedMmioPointer::get`, `SharedMmioPointer::split` and `field_shared!`. They are now tied only
+  to the lifetime parameter of the original `SharedMmioPointer`, not the lifetime of the reference.
 
 ## 0.2.4
 
