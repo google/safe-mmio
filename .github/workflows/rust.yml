@@ -1,5 +1,4 @@
-name: Rust
-
+name: Python
 on:
   push:
     branches: [main]

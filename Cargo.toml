@@ -1,3 +1,4 @@
+_workspace/my_crate/Cargo.toml
 [package]
 name = "safe-mmio"
 version = "0.2.5"
