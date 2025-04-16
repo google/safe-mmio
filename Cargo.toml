@@ -8,6 +8,7 @@ authors = ["Andrew Walbran <qwandor@google.com>"]
 repository = "https://github.com/google/safe-mmio"
 keywords = ["mmio"]
 categories = ["embedded", "no-std"]
+rust-version = "1.85"
 
 [dependencies]
 zerocopy = { version = "0.8.24", features = ["derive"] }
