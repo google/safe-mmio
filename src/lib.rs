@@ -349,7 +349,7 @@ impl<'a, T, const LEN: usize> From<UniqueMmioPointer<'a, [T; LEN]>>
 {
     fn from(mut value: UniqueMmioPointer<'a, [T; LEN]>) -> Self {
         array::from_fn(|i| {
-            let item_pointer = value.split()[i].ptr_mut();
+            let item_pointer = value.get(i).unwrap().ptr_mut();
             // SAFETY: `split_child` is called only once on each item and the original
             // `UniqueMmioPointer` is consumed by this function.
             unsafe { value.split_child(core::ptr::NonNull::new(item_pointer).unwrap()) }

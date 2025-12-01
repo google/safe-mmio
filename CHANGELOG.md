@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Improvements
+
+- Optimised implementation of `From<UniqueMmioPointer<[T; LEN]>>` for `[UniqueMmioPointer<T>; LEN]`.
+
 ## 0.2.5
 
 ### Improvements
