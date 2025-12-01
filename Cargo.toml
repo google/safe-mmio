@@ -11,4 +11,4 @@ categories = ["embedded", "no-std"]
 rust-version = "1.85"
 
 [dependencies]
-zerocopy = { version = "0.8.28", features = ["derive"] }
+zerocopy = { version = "0.8.31", features = ["derive"] }
