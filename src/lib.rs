@@ -75,7 +75,7 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     ///
     /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
     /// within the allocation that `self` points to.
-    pub const unsafe fn child<U: ?Sized>(&mut self, regs: NonNull<U>) -> UniqueMmioPointer<U> {
+    pub const unsafe fn child<U: ?Sized>(&mut self, regs: NonNull<U>) -> UniqueMmioPointer<'_, U> {
         UniqueMmioPointer(SharedMmioPointer {
             regs,
             phantom: PhantomData,
@@ -93,7 +93,7 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     }
 
     /// Returns a new `UniqueMmioPointer` with a lifetime no greater than this one.
-    pub const fn reborrow(&mut self) -> UniqueMmioPointer<T> {
+    pub const fn reborrow(&mut self) -> UniqueMmioPointer<'_, T> {
         let ptr = self.ptr_nonnull();
         // SAFETY: `ptr` must be properly aligned and valid and within our allocation because it is
         // exactly our allocation.
@@ -190,7 +190,7 @@ impl<'a, T> UniqueMmioPointer<'a, [T]> {
     /// let mut element = slice.get(1).unwrap();
     /// element.write(42);
     /// ```
-    pub const fn get(&mut self, index: usize) -> Option<UniqueMmioPointer<T>> {
+    pub const fn get(&mut self, index: usize) -> Option<UniqueMmioPointer<'_, T>> {
         if index >= self.0.len() {
             return None;
         }
@@ -237,7 +237,7 @@ impl<'a, T> UniqueMmioPointer<'a, [T]> {
 
 impl<'a, T, const LEN: usize> UniqueMmioPointer<'a, [T; LEN]> {
     /// Splits a `UniqueMmioPointer` to an array into an array of `UniqueMmioPointer`s.
-    pub fn split(&mut self) -> [UniqueMmioPointer<T>; LEN] {
+    pub fn split(&mut self) -> [UniqueMmioPointer<'_, T>; LEN] {
         array::from_fn(|i| {
             UniqueMmioPointer(SharedMmioPointer {
                 // SAFETY: self.regs is always unique and valid for MMIO access. We make sure the
@@ -249,7 +249,7 @@ impl<'a, T, const LEN: usize> UniqueMmioPointer<'a, [T; LEN]> {
     }
 
     /// Converts this array pointer to an equivalent slice pointer.
-    pub const fn as_mut_slice(&mut self) -> UniqueMmioPointer<[T]> {
+    pub const fn as_mut_slice(&mut self) -> UniqueMmioPointer<'_, [T]> {
         let regs = NonNull::new(self.ptr_mut()).unwrap();
         // SAFETY: We created regs from the raw array in self.regs, so it must also be valid, unique
         // and within the allocation of self.regs.
@@ -271,7 +271,7 @@ impl<'a, T, const LEN: usize> UniqueMmioPointer<'a, [T; LEN]> {
     /// element.write(42);
     /// slice.get(2).unwrap().write(100);
     /// ```
-    pub const fn get(&mut self, index: usize) -> Option<UniqueMmioPointer<T>> {
+    pub const fn get(&mut self, index: usize) -> Option<UniqueMmioPointer<'_, T>> {
         if index >= LEN {
             return None;
         }
@@ -349,7 +349,7 @@ impl<'a, T, const LEN: usize> From<UniqueMmioPointer<'a, [T; LEN]>>
 {
     fn from(mut value: UniqueMmioPointer<'a, [T; LEN]>) -> Self {
         array::from_fn(|i| {
-            let item_pointer = value.split()[i].ptr_mut();
+            let item_pointer = value.get(i).unwrap().ptr_mut();
             // SAFETY: `split_child` is called only once on each item and the original
             // `UniqueMmioPointer` is consumed by this function.
             unsafe { value.split_child(core::ptr::NonNull::new(item_pointer).unwrap()) }
