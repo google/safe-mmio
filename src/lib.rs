@@ -237,7 +237,7 @@ impl<'a, T> UniqueMmioPointer<'a, [T]> {
 
 impl<'a, T, const LEN: usize> UniqueMmioPointer<'a, [T; LEN]> {
     /// Splits a `UniqueMmioPointer` to an array into an array of `UniqueMmioPointer`s.
-    pub fn split(&mut self) -> [UniqueMmioPointer<'_, T>; LEN] {
+    pub fn split(mut self) -> [UniqueMmioPointer<'a, T>; LEN] {
         array::from_fn(|i| {
             UniqueMmioPointer(SharedMmioPointer {
                 // SAFETY: self.regs is always unique and valid for MMIO access. We make sure the
@@ -782,7 +782,7 @@ mod tests {
         let mut foo = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
         let mut owned = UniqueMmioPointer::from(&mut foo);
 
-        let mut parts = owned.split();
+        let mut parts = owned.reborrow().split();
         assert_eq!(parts[0].read(), 1);
         assert_eq!(parts[1].read(), 2);
         assert_eq!(owned.split()[2].read(), 3);
