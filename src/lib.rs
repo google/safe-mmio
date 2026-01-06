@@ -248,6 +248,30 @@ impl<'a, T, const LEN: usize> UniqueMmioPointer<'a, [T; LEN]> {
         })
     }
 
+    /// Splits a `UniqueMmioPointer` to an array into an array of `UniqueMmioPointer`s, taking only
+    /// the `chosen` indices.
+    ///
+    /// Panics if `chosen` contains the same index more than once, or any index out of bounds.
+    pub fn split_some<const N: usize>(
+        mut self,
+        chosen: [usize; N],
+    ) -> [UniqueMmioPointer<'a, T>; N] {
+        for (i, a) in chosen.iter().enumerate() {
+            for (j, b) in chosen.iter().enumerate() {
+                assert!(i == j || a != b, "chosen array must not contain duplicates");
+            }
+        }
+        chosen.map(|chosen_index| {
+            UniqueMmioPointer(SharedMmioPointer {
+                // SAFETY: self.regs is always unique and valid for MMIO access. We checked that
+                // `chosen` doesn't contain duplicates so the pointers we split it into don't
+                // overlap, so the same applies to each of them.
+                regs: NonNull::new(unsafe { &raw mut (*self.ptr_mut())[chosen_index] }).unwrap(),
+                phantom: PhantomData,
+            })
+        })
+    }
+
     /// Converts this array pointer to an equivalent slice pointer.
     pub const fn as_mut_slice(&mut self) -> UniqueMmioPointer<'_, [T]> {
         let regs = NonNull::new(self.ptr_mut()).unwrap();
@@ -472,6 +496,28 @@ impl<T: FromBytes + IntoBytes> SharedMmioPointer<'_, ReadPureWrite<T>> {
 }
 
 impl<'a, T> SharedMmioPointer<'a, [T]> {
+    /// Splits a `UniqueMmioPointer` to a slice into an array of `UniqueMmioPointer`s, taking only
+    /// the `chosen` indices.
+    ///
+    /// Panics if `chosen` contains the same index more than once, or any index out of bounds.
+    pub fn split_some<const N: usize>(self, chosen: [usize; N]) -> [UniqueMmioPointer<'a, T>; N] {
+        for (i, a) in chosen.iter().enumerate() {
+            for (j, b) in chosen.iter().enumerate() {
+                assert!(i == j || a != b, "chosen array must not contain duplicates");
+            }
+        }
+        chosen.map(|chosen_index| {
+            UniqueMmioPointer(SharedMmioPointer {
+                // SAFETY: self.regs is always unique and valid for MMIO access. We checked that
+                // `chosen` doesn't contain duplicates so the pointers we split it into don't
+                // overlap, so the same applies to each of them.
+                regs: NonNull::new(unsafe { &raw mut (*self.regs.as_ptr())[chosen_index] })
+                    .unwrap(),
+                phantom: PhantomData,
+            })
+        })
+    }
+
     /// Returns a `SharedMmioPointer` to an element of this slice, or `None` if the index is out of
     /// bounds.
     pub const fn get(&self, index: usize) -> Option<SharedMmioPointer<'a, T>> {
