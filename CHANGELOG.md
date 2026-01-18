@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- Take `self` rather than `&self` for methods on `SharedMmioPointer`.
+- Take `self` rather than `&mut self` for `UniqueMmioPointer::split`. The old behaviour can be
+  achieved by calling `reborrow` first.
+
 ## 0.2.7
 
 ### Improvements
