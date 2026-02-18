@@ -237,7 +237,7 @@ impl<'a, T> UniqueMmioPointer<'a, [T]> {
 
 impl<'a, T, const LEN: usize> UniqueMmioPointer<'a, [T; LEN]> {
     /// Splits a `UniqueMmioPointer` to an array into an array of `UniqueMmioPointer`s.
-    pub fn split(&mut self) -> [UniqueMmioPointer<'_, T>; LEN] {
+    pub fn split(mut self) -> [UniqueMmioPointer<'a, T>; LEN] {
         array::from_fn(|i| {
             UniqueMmioPointer(SharedMmioPointer {
                 // SAFETY: self.regs is always unique and valid for MMIO access. We make sure the
@@ -442,7 +442,7 @@ impl<'a, T: ?Sized> SharedMmioPointer<'a, T> {
     ///
     /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
     /// within the allocation that `self` points to.
-    pub const unsafe fn child<U: ?Sized>(&self, regs: NonNull<U>) -> SharedMmioPointer<'a, U> {
+    pub const unsafe fn child<U: ?Sized>(self, regs: NonNull<U>) -> SharedMmioPointer<'a, U> {
         SharedMmioPointer {
             regs,
             phantom: PhantomData,
@@ -450,7 +450,7 @@ impl<'a, T: ?Sized> SharedMmioPointer<'a, T> {
     }
 
     /// Returns a raw const pointer to the MMIO registers.
-    pub const fn ptr(&self) -> *const T {
+    pub const fn ptr(self) -> *const T {
         self.regs.as_ptr()
     }
 }
@@ -477,7 +477,7 @@ impl<'a, T: ?Sized> From<UniqueMmioPointer<'a, T>> for SharedMmioPointer<'a, T> 
 
 impl<T: FromBytes + IntoBytes> SharedMmioPointer<'_, ReadPure<T>> {
     /// Performs an MMIO read of the entire `T`.
-    pub fn read(&self) -> T {
+    pub fn read(self) -> T {
         // SAFETY: self.regs is always a valid and unique pointer to MMIO address space, and `T`
         // being wrapped in `ReadPure` implies that it is safe to read from a shared reference
         // because doing so has no side-effects.
@@ -487,7 +487,7 @@ impl<T: FromBytes + IntoBytes> SharedMmioPointer<'_, ReadPure<T>> {
 
 impl<T: FromBytes + IntoBytes> SharedMmioPointer<'_, ReadPureWrite<T>> {
     /// Performs an MMIO read of the entire `T`.
-    pub fn read(&self) -> T {
+    pub fn read(self) -> T {
         // SAFETY: self.regs is always a valid pointer to MMIO address space, and `T`
         // being wrapped in `ReadPureWrite` implies that it is safe to read from a shared reference
         // because doing so has no side-effects.
@@ -520,7 +520,7 @@ impl<'a, T> SharedMmioPointer<'a, [T]> {
 
     /// Returns a `SharedMmioPointer` to an element of this slice, or `None` if the index is out of
     /// bounds.
-    pub const fn get(&self, index: usize) -> Option<SharedMmioPointer<'a, T>> {
+    pub const fn get(self, index: usize) -> Option<SharedMmioPointer<'a, T>> {
         if index >= self.len() {
             return None;
         }
@@ -532,19 +532,19 @@ impl<'a, T> SharedMmioPointer<'a, [T]> {
     }
 
     /// Returns the length of the slice.
-    pub const fn len(&self) -> usize {
+    pub const fn len(self) -> usize {
         self.regs.len()
     }
 
     /// Returns whether the slice is empty.
-    pub const fn is_empty(&self) -> bool {
+    pub const fn is_empty(self) -> bool {
         self.regs.is_empty()
     }
 }
 
 impl<'a, T, const LEN: usize> SharedMmioPointer<'a, [T; LEN]> {
     /// Splits a `SharedMmioPointer` to an array into an array of `SharedMmioPointer`s.
-    pub fn split(&self) -> [SharedMmioPointer<'a, T>; LEN] {
+    pub fn split(self) -> [SharedMmioPointer<'a, T>; LEN] {
         array::from_fn(|i| SharedMmioPointer {
             // SAFETY: self.regs is always unique and valid for MMIO access. We make sure the
             // pointers we split it into don't overlap, so the same applies to each of them.
@@ -554,7 +554,7 @@ impl<'a, T, const LEN: usize> SharedMmioPointer<'a, [T; LEN]> {
     }
 
     /// Converts this array pointer to an equivalent slice pointer.
-    pub const fn as_slice(&self) -> SharedMmioPointer<'a, [T]> {
+    pub const fn as_slice(self) -> SharedMmioPointer<'a, [T]> {
         let regs = NonNull::new(self.regs.as_ptr()).unwrap();
         // SAFETY: We created regs from the raw array in self.regs, so it must also be valid, unique
         // and within the allocation of self.regs.
@@ -563,7 +563,7 @@ impl<'a, T, const LEN: usize> SharedMmioPointer<'a, [T; LEN]> {
 
     /// Returns a `SharedMmioPointer` to an element of this array, or `None` if the index is out of
     /// bounds.
-    pub const fn get(&self, index: usize) -> Option<SharedMmioPointer<'a, T>> {
+    pub const fn get(self, index: usize) -> Option<SharedMmioPointer<'a, T>> {
         if index >= LEN {
             return None;
         }
@@ -782,7 +782,7 @@ mod tests {
         let mut foo = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
         let mut owned = UniqueMmioPointer::from(&mut foo);
 
-        let mut parts = owned.split();
+        let mut parts = owned.reborrow().split();
         assert_eq!(parts[0].read(), 1);
         assert_eq!(parts[1].read(), 2);
         assert_eq!(owned.split()[2].read(), 3);
