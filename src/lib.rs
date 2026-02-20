@@ -652,15 +652,15 @@ impl<'a, T> From<SharedMmioPointer<'a, T>> for SharedMmioPointer<'a, [T]> {
 #[macro_export]
 macro_rules! field {
     ($mmio_pointer:expr, $field:ident) => {{
-        // Make sure $mmio_pointer is the right type.
-        let mmio_pointer: &mut $crate::UniqueMmioPointer<_> = &mut $mmio_pointer;
         // SAFETY: ptr_mut is guaranteed to return a valid pointer for MMIO, so the pointer to the
-        // field must also be valid. MmioPointer::child gives it the same lifetime as the original
-        // pointer.
+        // field must also be valid. UniqueMmioPointer::child gives it the same lifetime as the
+        // original pointer.
         unsafe {
-            let child_pointer =
-                core::ptr::NonNull::new(&raw mut (*mmio_pointer.ptr_mut()).$field).unwrap();
-            mmio_pointer.child(child_pointer)
+            let child_pointer = core::ptr::NonNull::new(
+                &raw mut (*$crate::UniqueMmioPointer::ptr_mut(&mut $mmio_pointer)).$field,
+            )
+            .unwrap();
+            $crate::UniqueMmioPointer::child(&mut $mmio_pointer, child_pointer)
         }
     }};
 }
@@ -696,16 +696,16 @@ macro_rules! split_fields {
 #[macro_export]
 macro_rules! field_shared {
     ($mmio_pointer:expr, $field:ident) => {{
-        // Make sure $mmio_pointer is the right type.
-        let mmio_pointer: &$crate::SharedMmioPointer<_> = &$mmio_pointer;
         // SAFETY: ptr_mut is guaranteed to return a valid pointer for MMIO, so the pointer to the
         // field must also be valid. MmioPointer::child gives it the same lifetime as the original
         // pointer.
+        #[allow(unused_unsafe, reason = "May be nested")]
         unsafe {
-            let child_pointer =
-                core::ptr::NonNull::new((&raw const (*mmio_pointer.ptr()).$field).cast_mut())
-                    .unwrap();
-            mmio_pointer.child(child_pointer)
+            let child_pointer = core::ptr::NonNull::new(
+                (&raw const (*$crate::SharedMmioPointer::ptr(&$mmio_pointer)).$field).cast_mut(),
+            )
+            .unwrap();
+            $crate::SharedMmioPointer::child(&$mmio_pointer, child_pointer)
         }
     }};
 }
@@ -968,5 +968,36 @@ mod tests {
 
         assert_eq!(parts[0].read(), 1);
         assert_eq!(parts[1].read(), 2);
+    }
+
+    #[test]
+    fn subfield() {
+        #[repr(C)]
+        struct Regs {
+            subregs: Subregs,
+        }
+
+        #[repr(C)]
+        struct Subregs {
+            field: ReadPureWrite<u32>,
+        }
+
+        let mut foo = Regs {
+            subregs: Subregs {
+                field: ReadPureWrite(0),
+            },
+        };
+        let mut owned: UniqueMmioPointer<Regs> = UniqueMmioPointer::from(&mut foo);
+
+        assert_eq!(
+            field_shared!(field_shared!(owned, subregs), field).read(),
+            0
+        );
+
+        let mut sub = field!(owned, subregs);
+        let mut field = field!(sub, field);
+        field.write(42);
+
+        assert_eq!(foo.subregs.field.0, 43);
     }
 }
