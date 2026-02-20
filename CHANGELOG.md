@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Improvements
+
+- Added `modify` and `modify_mut` methods to `UniqueMmioPointer<ReadWrite<T>>` and
+  `UniqueMmioPointer<ReadPureWrite<T>>`.
+
 ## 0.2.7
 
 ### Improvements

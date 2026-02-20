@@ -144,6 +144,27 @@ impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, ReadWrite<T>> {
     }
 }
 
+impl<T: FromBytes + Immutable + IntoBytes> UniqueMmioPointer<'_, ReadWrite<T>> {
+    /// Performs an MMIO read of the entire `T`, applies the given function to it, and then performs
+    /// an MMIO write of the resulting value.
+    ///
+    /// This is equivalent to calling [`read`](Self::read) then [`write`](Self::write).
+    pub fn modify(&mut self, f: impl FnOnce(T) -> T) {
+        let value = self.read();
+        self.write(f(value));
+    }
+
+    /// Performs an MMIO read of the entire `T`, calls the given function to modify it, and then
+    /// performs an MMIO write of the resulting value.
+    ///
+    /// This is equivalent to calling [`read`](Self::read) then [`write`](Self::write).
+    pub fn modify_mut(&mut self, f: impl FnOnce(&mut T)) {
+        let mut value = self.read();
+        f(&mut value);
+        self.write(value);
+    }
+}
+
 impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, ReadPureWrite<T>> {
     /// Performs an MMIO write of the entire `T`.
     pub fn write(&mut self, value: T) {
@@ -152,6 +173,27 @@ impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, ReadPureWrite<T>> {
         unsafe {
             self.write_unsafe(ReadPureWrite(value));
         }
+    }
+}
+
+impl<T: FromBytes + Immutable + IntoBytes> UniqueMmioPointer<'_, ReadPureWrite<T>> {
+    /// Performs an MMIO read of the entire `T`, applies the given function to it, and then performs
+    /// an MMIO write of the resulting value.
+    ///
+    /// This is equivalent to calling [`read`](Self::read) then [`write`](Self::write).
+    pub fn modify(&mut self, f: impl FnOnce(T) -> T) {
+        let value = self.read();
+        self.write(f(value));
+    }
+
+    /// Performs an MMIO read of the entire `T`, calls the given function to modify it, and then
+    /// performs an MMIO write of the resulting value.
+    ///
+    /// This is equivalent to calling [`read`](Self::read) then [`write`](Self::write).
+    pub fn modify_mut(&mut self, f: impl FnOnce(&mut T)) {
+        let mut value = self.read();
+        f(&mut value);
+        self.write(value);
     }
 }
 
