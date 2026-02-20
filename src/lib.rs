@@ -998,6 +998,6 @@ mod tests {
         let mut field = field!(sub, field);
         field.write(42);
 
-        assert_eq!(foo.subregs.field.0, 43);
+        assert_eq!(foo.subregs.field.0, 42);
     }
 }
