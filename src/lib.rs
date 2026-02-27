@@ -16,7 +16,13 @@ mod physical;
 mod volatile_mmio;
 
 use crate::fields::{ReadOnly, ReadPure, ReadPureWrite, ReadWrite, WriteOnly};
-use core::{array, fmt::Debug, marker::PhantomData, ops::Deref, ptr, ptr::NonNull};
+use core::{
+    array,
+    fmt::Debug,
+    marker::PhantomData,
+    ops::{Deref, Range},
+    ptr::{self, NonNull, slice_from_raw_parts_mut},
+};
 pub use physical::PhysicalInstance;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -244,6 +250,49 @@ impl<'a, T> UniqueMmioPointer<'a, [T]> {
         Some(unsafe { self.child(regs) })
     }
 
+    /// Returns a `UniqueMmioPointer` to a range of elements of this slice, or `None` if the range
+    /// is out of bounds.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use safe_mmio::{UniqueMmioPointer, fields::ReadWrite};
+    ///
+    /// let mut slice: UniqueMmioPointer<[ReadWrite<u32>]>;
+    /// # let mut fake = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+    /// # slice = UniqueMmioPointer::from(fake.as_mut_slice());
+    /// let mut range = slice.get_range(1..3).unwrap();
+    /// range.get(0).unwrap().write(100);
+    /// range.get(1).unwrap().write(200);
+    /// assert_eq!(None, range.get(2));
+    /// assert_eq!(100, slice.get(1).unwrap().read());
+    /// assert_eq!(200, slice.get(2).unwrap().read());
+    /// ```
+    pub fn get_range(&mut self, range: Range<usize>) -> Option<UniqueMmioPointer<'_, [T]>> {
+        if range.start > range.end || range.end > self.0.len() {
+            return None;
+        }
+
+        // SAFETY: self.ptr_mut() is guaranteed to return a pointer that is valid for MMIO and
+        // unique, as promised by the caller of `UniqueMmioPointer::new`. range.start is within the
+        // boundaries of the slice.
+        let regs_start = unsafe { &raw mut (*self.ptr_mut())[range.start] };
+
+        let regs = NonNull::new(slice_from_raw_parts_mut(regs_start, range.len())).unwrap();
+
+        // SAFETY: We created regs from the valid start address of regs_start and `range` is within
+        // the boundaries of self.regs, so it must also be valid, unique and within the allocation
+        // of self.regs.
+        Some(unsafe { self.child(regs) })
+    }
+
+    /// Returns a new iterator of the items of the slice.
+    pub fn iter(&mut self) -> UniqueMmioPointerIterator<'_, T> {
+        UniqueMmioPointerIterator {
+            tail: self.reborrow(),
+        }
+    }
+
     /// Returns a `UniqueMmioPointer` to an element of this slice, or `None` if the index is out of
     /// bounds.
     ///
@@ -349,6 +398,49 @@ impl<'a, T, const LEN: usize> UniqueMmioPointer<'a, [T; LEN]> {
         Some(unsafe { self.child(regs) })
     }
 
+    /// Returns a `UniqueMmioPointer` to a range of elements of this array, or `None` if the range
+    /// is out of bounds.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use safe_mmio::{UniqueMmioPointer, fields::ReadWrite};
+    ///
+    /// let mut slice: UniqueMmioPointer<[ReadWrite<u32>; 3]>;
+    /// # let mut fake = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+    /// # slice = UniqueMmioPointer::from(&mut fake);
+    /// let mut range = slice.get_range(1..3).unwrap();
+    /// range.get(0).unwrap().write(100);
+    /// range.get(1).unwrap().write(200);
+    /// assert_eq!(None, range.get(2));
+    /// assert_eq!(100, slice.get(1).unwrap().read());
+    /// assert_eq!(200, slice.get(2).unwrap().read());
+    /// ```
+    pub fn get_range(&mut self, range: Range<usize>) -> Option<UniqueMmioPointer<'_, [T]>> {
+        if range.start > range.end || range.end > LEN {
+            return None;
+        }
+
+        // SAFETY: self.ptr_mut() is guaranteed to return a pointer that is valid for MMIO and
+        // unique, as promised by the caller of `UniqueMmioPointer::new`. range.start is within the
+        // boundaries of the array.
+        let regs_start = unsafe { &raw mut (*self.ptr_mut())[range.start] };
+
+        let regs = NonNull::new(slice_from_raw_parts_mut(regs_start, range.len())).unwrap();
+
+        // SAFETY: We created regs from the valid start address of regs_start and `range` is within
+        // the boundaries of self.regs, so it must also be valid, unique and within the allocation
+        // of self.regs.
+        Some(unsafe { self.child(regs) })
+    }
+
+    /// Returns a new iterator to the items of the array.
+    pub fn iter(&mut self) -> UniqueMmioPointerIterator<'_, T> {
+        UniqueMmioPointerIterator {
+            tail: self.as_mut_slice(),
+        }
+    }
+
     /// Returns a `UniqueMmioPointer` to an element of this array, or `None` if the index is out of
     /// bounds.
     ///
@@ -437,6 +529,75 @@ impl<'a, T: ?Sized> Deref for UniqueMmioPointer<'a, T> {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl<'a, T> IntoIterator for UniqueMmioPointer<'a, [T]> {
+    type Item = UniqueMmioPointer<'a, T>;
+
+    type IntoIter = UniqueMmioPointerIterator<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        UniqueMmioPointerIterator { tail: self }
+    }
+}
+
+impl<'a, T, const LEN: usize> IntoIterator for UniqueMmioPointer<'a, [T; LEN]> {
+    type Item = UniqueMmioPointer<'a, T>;
+
+    type IntoIter = UniqueMmioPointerIterator<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        UniqueMmioPointerIterator { tail: self.into() }
+    }
+}
+
+/// Iterator over a `UniqueMmioPointer` slice, yielding pointers to items.
+///
+/// This iterator advances by splitting off the head element and shortening the
+/// remaining tail.
+#[derive(Debug)]
+pub struct UniqueMmioPointerIterator<'a, T> {
+    tail: UniqueMmioPointer<'a, [T]>,
+}
+
+impl<'a, T> Iterator for UniqueMmioPointerIterator<'a, T> {
+    type Item = UniqueMmioPointer<'a, T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.tail.is_empty() {
+            // SAFETY: self.ptr_mut() is guaranteed to return a pointer that is valid for MMIO and
+            // unique, as promised by the caller of `UniqueMmioPointer::new` and the slice is
+            // not empty.
+            let regs_head = NonNull::new(unsafe { &raw mut (*self.tail.ptr_mut())[0] }).unwrap();
+
+            // SAFETY: regs_head is created from self.tail so it is valid and within the range of
+            // the original pointer. There no other further split_child calls to the same child and
+            // self.tail is moved by one in the following lines.
+            let head = unsafe { self.tail.split_child(regs_head) };
+
+            // SAFETY: regs_head is guaranteed to return a pointer that is valid for MMIO and
+            // unique, as promised by the caller of `UniqueMmioPointer::new`. The new slice will be
+            // either empty, or it points at least one entry with a valid address.
+            let regs_tail = NonNull::new(slice_from_raw_parts_mut(
+                unsafe { regs_head.add(1).as_ptr() },
+                self.tail.len() - 1,
+            ))
+            .unwrap();
+
+            // SAFETY: regs is created from self.tail so it is valid and within the range of the
+            // original pointer. The new pointer overwrites the original so it cannot be used
+            // afterwards, and there are no further calls to split_child().
+            self.tail = unsafe { self.tail.split_child(regs_tail) };
+
+            Some(head)
+        } else {
+            None
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.tail.len(), Some(self.tail.len()))
     }
 }
 
@@ -573,6 +734,31 @@ impl<'a, T> SharedMmioPointer<'a, [T]> {
         Some(unsafe { self.child(regs) })
     }
 
+    /// Returns a `SharedMmioPointer` to a range of elements of this slice, or `None` if the range
+    /// is out of bounds.
+    pub fn get_range(&self, range: Range<usize>) -> Option<SharedMmioPointer<'_, [T]>> {
+        if range.start > range.end || range.end > self.len() {
+            return None;
+        }
+
+        // SAFETY: self.ptr_mut() is guaranteed to return a pointer that is valid for MMIO and
+        // unique, as promised by the caller of `UniqueMmioPointer::new`. range.start is within the
+        // boundaries of the slice.
+        let regs_start = unsafe { &raw mut (*self.regs.as_ptr())[range.start] };
+
+        let regs = NonNull::new(slice_from_raw_parts_mut(regs_start, range.len())).unwrap();
+
+        // SAFETY: We created regs from the valid start address of regs_start and `range` is within
+        // the boundaries of self.regs, so it must also be valid, unique and within the allocation
+        // of self.regs.
+        Some(unsafe { self.child(regs) })
+    }
+
+    /// Returns a new iterator of the items of the slice.
+    pub fn iter(&self) -> SharedMmioPointerIterator<'_, T> {
+        SharedMmioPointerIterator { tail: *self }
+    }
+
     /// Returns the length of the slice.
     pub const fn len(&self) -> usize {
         self.regs.len()
@@ -615,6 +801,32 @@ impl<'a, T, const LEN: usize> SharedMmioPointer<'a, [T; LEN]> {
         // and within the allocation of self.regs.
         Some(unsafe { self.child(regs) })
     }
+
+    /// Returns a `SharedMmioPointer` to a range of elements of this array, or `None` if the range
+    /// is out of bounds.
+    pub fn get_range(&self, range: Range<usize>) -> Option<SharedMmioPointer<'_, [T]>> {
+        if range.start > range.end || range.end > LEN {
+            return None;
+        }
+
+        // SAFETY: self.regs is always unique and valid for MMIO access. range.start is within the
+        // boundaries of the slice.
+        let regs_start = unsafe { &raw mut (*self.regs.as_ptr())[range.start] };
+
+        let regs = NonNull::new(slice_from_raw_parts_mut(regs_start, range.len())).unwrap();
+
+        // SAFETY: We created regs from the valid start address of regs_start and `range` is within
+        // the boundaries of self.regs, so it must also be valid, unique and within the allocation
+        // of self.regs.
+        Some(unsafe { self.child(regs) })
+    }
+
+    /// Returns a new iterator of the items of the array.
+    pub fn iter(&self) -> SharedMmioPointerIterator<'_, T> {
+        SharedMmioPointerIterator {
+            tail: self.as_slice(),
+        }
+    }
 }
 
 impl<'a, T, const LEN: usize> From<SharedMmioPointer<'a, [T; LEN]>> for SharedMmioPointer<'a, [T]> {
@@ -645,6 +857,74 @@ impl<'a, T> From<SharedMmioPointer<'a, T>> for SharedMmioPointer<'a, [T]> {
             regs,
             phantom: PhantomData,
         }
+    }
+}
+
+impl<'a, T> IntoIterator for SharedMmioPointer<'a, [T]> {
+    type Item = SharedMmioPointer<'a, T>;
+
+    type IntoIter = SharedMmioPointerIterator<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        SharedMmioPointerIterator { tail: self }
+    }
+}
+
+impl<'a, T, const LEN: usize> IntoIterator for SharedMmioPointer<'a, [T; LEN]> {
+    type Item = SharedMmioPointer<'a, T>;
+
+    type IntoIter = SharedMmioPointerIterator<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        SharedMmioPointerIterator { tail: self.into() }
+    }
+}
+
+/// Iterator over a `SharedMmioPointer` slice, yielding pointers to items.
+///
+/// This iterator advances by creating a head pointer and shortening the
+/// remaining tail.
+#[derive(Clone, Copy, Debug)]
+pub struct SharedMmioPointerIterator<'a, T> {
+    tail: SharedMmioPointer<'a, [T]>,
+}
+
+impl<'a, T> Iterator for SharedMmioPointerIterator<'a, T> {
+    type Item = SharedMmioPointer<'a, T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.tail.is_empty() {
+            // SAFETY: self.ptr_mut() is guaranteed to return a pointer that is valid for MMIO and
+            // unique, as promised by the caller of `UniqueMmioPointer::new` and the slice is
+            // not empty.
+            let regs_head =
+                NonNull::new(unsafe { &raw mut (*self.tail.regs.as_ptr())[0] }).unwrap();
+
+            // SAFETY: regs_head is created from self.tail so it is valid and within the range of
+            // the original pointer.
+            let head = unsafe { self.tail.child(regs_head) };
+
+            // SAFETY: regs_head is guaranteed to return a pointer that is valid for MMIO and
+            // unique, as promised by the caller of `UniqueMmioPointer::new`. The new slice will be
+            // either empty, or it points at least one entry with a valid address.
+            let regs_tail = NonNull::new(slice_from_raw_parts_mut(
+                unsafe { regs_head.add(1).as_ptr() },
+                self.tail.len() - 1,
+            ))
+            .unwrap();
+
+            // SAFETY: We created regs from the raw array in self.regs, so it must also be valid,
+            // unique and within the allocation of self.regs.
+            self.tail = unsafe { self.tail.child(regs_tail) };
+
+            Some(head)
+        } else {
+            None
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.tail.len(), Some(self.tail.len()))
     }
 }
 
@@ -999,5 +1279,75 @@ mod tests {
         field.write(42);
 
         assert_eq!(foo.subregs.field.0, 42);
+    }
+
+    #[test]
+    fn iterator_slice() {
+        let mut regs = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+
+        {
+            let mut ptr = UniqueMmioPointer::from(&mut regs);
+            let mut slice = ptr.as_mut_slice();
+
+            let mut iter = slice.iter();
+
+            iter.next().unwrap().write(4);
+            iter.next().unwrap().write(5);
+            iter.next().unwrap().write(6);
+            assert_eq!(iter.next(), None);
+        }
+
+        assert_eq!(regs[0].0, 4);
+        assert_eq!(regs[1].0, 5);
+        assert_eq!(regs[2].0, 6);
+    }
+
+    #[test]
+    fn iterator_array() {
+        let mut regs = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+
+        {
+            let mut ptr = UniqueMmioPointer::from(&mut regs);
+
+            let mut iter = ptr.iter();
+
+            iter.next().unwrap().write(4);
+            iter.next().unwrap().write(5);
+            iter.next().unwrap().write(6);
+            assert_eq!(iter.next(), None);
+        }
+
+        assert_eq!(regs[0].0, 4);
+        assert_eq!(regs[1].0, 5);
+        assert_eq!(regs[2].0, 6);
+    }
+
+    #[test]
+    fn shared_iterator_slice() {
+        let regs = [ReadPureWrite(1), ReadPureWrite(2), ReadPureWrite(3)];
+
+        let ptr = SharedMmioPointer::from(&regs);
+        let slice = ptr.as_slice();
+
+        let mut iter = slice.iter();
+
+        assert_eq!(iter.next().unwrap().read(), 1);
+        assert_eq!(iter.next().unwrap().read(), 2);
+        assert_eq!(iter.next().unwrap().read(), 3);
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn shared_iterator_array() {
+        let regs = [ReadPureWrite(1), ReadPureWrite(2), ReadPureWrite(3)];
+
+        let ptr = SharedMmioPointer::from(&regs);
+
+        let mut iter = ptr.iter();
+
+        assert_eq!(iter.next().unwrap().read(), 1);
+        assert_eq!(iter.next().unwrap().read(), 2);
+        assert_eq!(iter.next().unwrap().read(), 3);
+        assert_eq!(iter.next(), None);
     }
 }
