@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Breaking changes
+
+- Take `self` rather than `&mut self` for `UniqueMmioPointer::split`. The old behaviour can be
+  achieved by calling `reborrow` first.
+- Take `self` rather than `&self` for `SharedMmioPointer::split`. `SharedMmioPointer` is `Copy` so
+  this should make no difference in most cases.
+
 ### Improvements
 
 - Added `modify` and `modify_mut` methods to `UniqueMmioPointer<ReadWrite<T>>` and
