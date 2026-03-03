@@ -787,7 +787,7 @@ impl<'a, T> SharedMmioPointer<'a, [T]> {
 
 impl<'a, T, const LEN: usize> SharedMmioPointer<'a, [T; LEN]> {
     /// Splits a `SharedMmioPointer` to an array into an array of `SharedMmioPointer`s.
-    pub fn split(&self) -> [SharedMmioPointer<'a, T>; LEN] {
+    pub fn split(self) -> [SharedMmioPointer<'a, T>; LEN] {
         array::from_fn(|i| SharedMmioPointer {
             // SAFETY: self.regs is always unique and valid for MMIO access. We make sure the
             // pointers we split it into don't overlap, so the same applies to each of them.
