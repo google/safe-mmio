@@ -950,6 +950,8 @@ impl<'a, T> Iterator for SharedMmioPointerIterator<'a, T> {
 #[macro_export]
 macro_rules! field {
     ($mmio_pointer:expr, $field:ident) => {{
+        _ = &mut $mmio_pointer;
+
         // SAFETY: ptr_mut is guaranteed to return a valid pointer for MMIO, so the pointer to the
         // field must also be valid. UniqueMmioPointer::child gives it the same lifetime as the
         // original pointer.
@@ -994,6 +996,8 @@ macro_rules! split_fields {
 #[macro_export]
 macro_rules! field_shared {
     ($mmio_pointer:expr, $field:ident) => {{
+        _ = &$mmio_pointer;
+
         // SAFETY: ptr_mut is guaranteed to return a valid pointer for MMIO, so the pointer to the
         // field must also be valid. MmioPointer::child gives it the same lifetime as the original
         // pointer.
@@ -1210,7 +1214,7 @@ mod tests {
         }
 
         impl Regs {
-            fn from_slice<'a>(slice: &'a mut [ReadPureWrite<u32>]) -> &'a mut Self {
+            fn from_slice(slice: &mut [ReadPureWrite<u32>]) -> &mut Self {
                 let regs_ptr: *mut Self = slice as *mut [ReadPureWrite<u32>] as *mut Self;
                 // SAFETY: `Regs` is repr(transparent) so a reference to its field has the same
                 // metadata as a reference to `Regs``.
@@ -1248,8 +1252,8 @@ mod tests {
         assert_eq!(first.read(), 1);
         assert_eq!(second.read(), 2);
 
-        drop(first);
-        drop(second);
+        assert_eq!(first.read(), 1);
+        assert_eq!(second.read(), 2);
 
         assert_eq!(field!(owned, first).read(), 1);
     }
