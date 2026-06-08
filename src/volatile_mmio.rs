@@ -7,6 +7,9 @@ use crate::{SharedMmioPointer, UniqueMmioPointer};
 impl<T> UniqueMmioPointer<'_, T> {
     /// Performs an MMIO read of the entire `T`.
     ///
+    /// Note that this takes `&mut self` rather than `&self` because an MMIO read may cause
+    /// side-effects that change the state of the device.
+    ///
     /// # Safety
     ///
     /// This field must be safe to perform an MMIO read from.
@@ -16,9 +19,6 @@ impl<T> UniqueMmioPointer<'_, T> {
     }
 
     /// Performs an MMIO write of the entire `T`.
-    ///
-    /// Note that this takes `&mut self` rather than `&self` because an MMIO read may cause
-    /// side-effects that change the state of the device.
     ///
     /// # Safety
     ///
