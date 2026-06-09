@@ -87,7 +87,7 @@ impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, T> {
     /// # Safety
     ///
     /// This field must be safe to perform an MMIO write to.
-    pub unsafe fn write_unsafe(&self, value: T) {
+    pub unsafe fn write_unsafe(&mut self, value: T) {
         match size_of::<T>() {
             1 => unsafe { write_u8(self.regs.cast().as_ptr(), value.as_bytes()[0]) },
             2 => unsafe { write_u16(self.regs.cast().as_ptr(), convert(value)) },
