@@ -10,5 +10,8 @@ keywords = ["mmio"]
 categories = ["embedded", "no-std"]
 rust-version = "1.85"
 
+[features]
+custom-mmio = []
+
 [dependencies]
 zerocopy = { version = "0.8.50", features = ["derive"] }
