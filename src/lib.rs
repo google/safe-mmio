@@ -7,12 +7,15 @@
 #![no_std]
 #![deny(clippy::undocumented_unsafe_blocks)]
 #![deny(unsafe_op_in_unsafe_fn)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", not(feature = "custom-mmio")))]
 mod aarch64_mmio;
+#[cfg(feature = "custom-mmio")]
+pub mod custom_mmio;
 pub mod fields;
 mod physical;
-#[cfg(not(target_arch = "aarch64"))]
+#[cfg(all(not(target_arch = "aarch64"), not(feature = "custom-mmio")))]
 mod volatile_mmio;
 
 use crate::fields::{ReadOnly, ReadPure, ReadPureWrite, ReadWrite, WriteOnly};

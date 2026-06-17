@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Improvements
+
+- Added `custom-mmio` feature to allow the user of the crate to override how the underlying MMIO
+  operations are done. This may be useful for faking devices for driver tests, or for virtual
+  platforms where MMIO requires co-ordination with the hypervisor.
+
 ## 0.3.0
 
 ### Breaking changes

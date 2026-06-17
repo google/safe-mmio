@@ -19,6 +19,8 @@ jobs:
         run: cargo build
       - name: Test
         run: cargo test
+      - name: Test with custom-mmio
+        run: cargo test --features=custom-mmio
       - name: Run clippy
         uses: actions-rs/clippy-check@v1
         with:

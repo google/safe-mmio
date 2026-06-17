@@ -26,8 +26,8 @@ unsafe {
 }
 ```
 
-Depending on your platform this will either use `write_volatile` or some platform-dependent inline
-assembly to perform the MMIO write.
+Depending on your platform this will either use `write_volatile`, some platform-dependent inline
+assembly, or a [custom backend](#custom-mmio-backend) to perform the MMIO write.
 
 ### Safe MMIO methods
 
@@ -91,6 +91,53 @@ physical address and size of the device's MMIO region, but is intended to convey
 should never be more than one `PhysicalInstance` pointer to the same device. This way your page
 table management code can take a `PhysicalInstance<T>` and return a `UniqueMmioPointer<T>` when a
 device is mapped into the page table.
+
+### Custom MMIO backend
+
+Some environments need to intercept MMIO accesses instead of letting them hit
+hardware directly. The `custom-mmio` feature lets the consuming project inject
+its own read/write implementations, even across the dependency chain, while
+keeping the rest of the safe-mmio API unchanged.
+
+Enable the feature in your `Cargo.toml`:
+
+```toml
+[dependencies]
+safe-mmio = { version = "0.3.0", features = ["custom-mmio"] }
+```
+
+Then implement the `MmioOps` trait and register it with `set_mmio_ops!`:
+
+```rust
+use safe_mmio::custom_mmio::MmioOps;
+
+struct MyBackend;
+
+// SAFETY: Each method performs a single MMIO access of the indicated width.
+unsafe impl MmioOps for MyBackend {
+    unsafe fn read_u8(src: *const u8) -> u8 { /* ... */ }
+    unsafe fn read_u16(src: *const u16) -> u16 { /* ... */ }
+    unsafe fn read_u32(src: *const u32) -> u32 { /* ... */ }
+    unsafe fn read_u64(src: *const u64) -> u64 { /* ... */ }
+    unsafe fn write_u8(dst: *mut u8, value: u8) { /* ... */ }
+    unsafe fn write_u16(dst: *mut u16, value: u16) { /* ... */ }
+    unsafe fn write_u32(dst: *mut u32, value: u32) { /* ... */ }
+    unsafe fn write_u64(dst: *mut u64, value: u64) { /* ... */ }
+}
+
+safe_mmio::set_mmio_ops!(MyBackend);
+```
+
+The `set_mmio_ops!` macro generates `#[no_mangle]` functions that the library resolves via
+`extern "Rust"` declarations. Exactly one call must exist in the final binary; linking fails
+otherwise.
+
+When `custom-mmio` is enabled it replaces both the default `volatile` backend and the `aarch64`
+inline-assembly backend.
+
+**Testing note:** Unit tests (`cargo test --lib --features custom-mmio`) work because the library
+includes a volatile-based `MmioOps` implementation gated on `#[cfg(test)]`. Doc tests build as
+separate binaries and cannot see `#[cfg(test)]` items, so use `--lib` to skip them.
 
 ## Comparison with other MMIO crates
 
