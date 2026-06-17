@@ -10,21 +10,39 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```
+//! use safe_mmio::{custom_mmio::MmioOps, set_mmio_ops};
+//!
 //! struct MyMmioBackend;
 //!
-//! unsafe impl safe_mmio::custom_mmio::MmioOps for MyMmioBackend {
-//!     unsafe fn read_u8(src: *const u8) -> u8 { /* ... */ }
-//!     unsafe fn read_u16(src: *const u16) -> u16 { /* ... */ }
-//!     unsafe fn read_u32(src: *const u32) -> u32 { /* ... */ }
-//!     unsafe fn read_u64(src: *const u64) -> u64 { /* ... */ }
-//!     unsafe fn write_u8(dst: *mut u8, value: u8) { /* ... */ }
-//!     unsafe fn write_u16(dst: *mut u16, value: u16) { /* ... */ }
-//!     unsafe fn write_u32(dst: *mut u32, value: u32) { /* ... */ }
-//!     unsafe fn write_u64(dst: *mut u64, value: u64) { /* ... */ }
+//! unsafe impl MmioOps for MyMmioBackend {
+//!     unsafe fn read_u8(src: *const u8) -> u8 {
+//!         src.read_volatile()
+//!     }
+//!     unsafe fn read_u16(src: *const u16) -> u16 {
+//!         src.read_volatile()
+//!     }
+//!     unsafe fn read_u32(src: *const u32) -> u32 {
+//!         src.read_volatile()
+//!     }
+//!     unsafe fn read_u64(src: *const u64) -> u64 {
+//!         src.read_volatile()
+//!     }
+//!     unsafe fn write_u8(dst: *mut u8, value: u8) {
+//!         dst.write_volatile(value);
+//!     }
+//!     unsafe fn write_u16(dst: *mut u16, value: u16) {
+//!         dst.write_volatile(value);
+//!     }
+//!     unsafe fn write_u32(dst: *mut u32, value: u32) {
+//!         dst.write_volatile(value);
+//!     }
+//!     unsafe fn write_u64(dst: *mut u64, value: u64) {
+//!         dst.write_volatile(value);
+//!     }
 //! }
 //!
-//! safe_mmio::set_mmio_ops!(MyMmioBackend);
+//! set_mmio_ops!(MyMmioBackend);
 //! ```
 
 use zerocopy::{FromBytes, Immutable, IntoBytes};
@@ -121,7 +139,11 @@ unsafe extern "Rust" {
 /// # Example
 ///
 /// ```ignore
-/// safe_mmio::set_mmio_ops!(MyMmioBackend);
+/// use safe_mmio::set_mmio_ops;
+///
+/// struct MyMmioBackend;
+///
+/// set_mmio_ops!(MyMmioBackend);
 /// ```
 #[macro_export]
 macro_rules! set_mmio_ops {
