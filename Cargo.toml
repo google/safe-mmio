@@ -15,3 +15,7 @@ custom-mmio = []
 
 [dependencies]
 zerocopy = { version = "0.8.50", features = ["derive"] }
+
+[package.metadata.docs.rs]
+features = ["custom-mmio"]
+rustdoc-args = ["--cfg", "docsrs"]

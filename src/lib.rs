@@ -7,6 +7,7 @@
 #![no_std]
 #![deny(clippy::undocumented_unsafe_blocks)]
 #![deny(unsafe_op_in_unsafe_fn)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(all(target_arch = "aarch64", not(feature = "custom-mmio")))]
 mod aarch64_mmio;
