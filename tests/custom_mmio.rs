@@ -91,20 +91,15 @@ fn main() {
 
     // Read a pure (side-effect-free) field via shared access.
     let status = field!(ptr, status).read();
-    println!("status:  {status:#010x}");
     assert_eq!(status, 0xFF);
 
     // Write and read back a read-write field.
     field!(ptr, control).write(0xDEAD_BEEF);
     let control = field!(ptr, control).read();
-    println!("control: {control:#010x}");
     assert_eq!(control, 0xDEAD_BEEF);
 
     // 64-bit read-write field.
     field!(ptr, data).write(0x0123_4567_89AB_CDEF);
     let data = field!(ptr, data).read();
-    println!("data:    {data:#018x}");
     assert_eq!(data, 0x0123_4567_89AB_CDEF);
-
-    println!("all checks passed");
 }
