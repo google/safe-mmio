@@ -2,20 +2,14 @@
 // This project is dual-licensed under Apache 2.0 and MIT terms.
 // See LICENSE-APACHE and LICENSE-MIT for details.
 
-//! Example demonstrating the use of the safe_mmio crate by accessing
+//! A test demonstrating the use of the safe_mmio crate by accessing
 //! a mock device (=regular RAM).
 //!
 //! This uses the default backend for the current architecture.
 //!
-//! Run with:
-//!
-//! ```sh
-//! cargo run --example example
-//! ```
-//!
 //! To enable the custom-mmio backend, run:
 //! ```sh
-//! cargo run --example example --features custom-mmio
+//! cargo test --features custom-mmio
 //! ```
 //! An [`MmioOps`] implementation is provided here which simply uses volatile
 //! reads/writes.
@@ -80,7 +74,8 @@ struct DeviceRegs {
     data: ReadWrite<u64>,
 }
 
-fn main() {
+#[test]
+fn custom_mmio_backend() {
     let mut regs = DeviceRegs {
         status: ReadPure(0x0000_00FF),
         control: ReadWrite(0),
