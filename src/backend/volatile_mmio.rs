@@ -3,11 +3,9 @@
 // See LICENSE-APACHE and LICENSE-MIT for details.
 
 use crate::backend::mmio_ops::MmioOps;
-use crate::{SharedMmioPointer, UniqueMmioPointer};
-use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// MmioOps backend using volatile read/write for MMIO access.
-struct Ops;
+pub struct Ops;
 
 // SAFETY: Each method performs a single volatile access of the indicated width.
 unsafe impl MmioOps for Ops {
@@ -57,47 +55,5 @@ unsafe impl MmioOps for Ops {
         unsafe {
             dst.write_volatile(value);
         }
-    }
-}
-
-impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, T> {
-    /// Performs an MMIO read of the entire `T`.
-    ///
-    /// Note that this takes `&mut self` rather than `&self` because an MMIO read may cause
-    /// side-effects that change the state of the device.
-    ///
-    /// # Safety
-    ///
-    /// This field must be safe to perform an MMIO read from.
-    pub unsafe fn read_unsafe(&mut self) -> T {
-        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
-        unsafe { Ops::mmio_read(self.regs) }
-    }
-}
-
-impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, T> {
-    /// Performs an MMIO write of the entire `T`.
-    ///
-    /// # Safety
-    ///
-    /// This field must be safe to perform an MMIO write to.
-    pub unsafe fn write_unsafe(&mut self, value: T) {
-        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
-        unsafe {
-            Ops::mmio_write(self.regs, value);
-        }
-    }
-}
-
-impl<T: FromBytes + IntoBytes> SharedMmioPointer<'_, T> {
-    /// Performs an MMIO read of the entire `T`.
-    ///
-    /// # Safety
-    ///
-    /// This field must be safe to perform an MMIO read from, and doing so must not cause any
-    /// side-effects.
-    pub unsafe fn read_unsafe(&self) -> T {
-        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
-        unsafe { Ops::mmio_read(self.regs) }
     }
 }
