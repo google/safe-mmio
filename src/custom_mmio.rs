@@ -117,6 +117,115 @@ pub unsafe trait MmioOps {
     ///
     /// `dst` must be a valid, aligned pointer to MMIO address space.
     unsafe fn write_u64(dst: *mut u64, value: u64);
+
+    /// Performs an MMIO read and returns the value.
+    ///
+    /// # Safety
+    ///
+    /// The pointer must be valid to perform an MMIO read from.
+    unsafe fn mmio_read<T: FromBytes + IntoBytes>(ptr: NonNull<T>) -> T {
+        // SAFETY: ptr is a valid, aligned pointer to MMIO address space. The implementor
+        // provides correctly-functioning primitive MMIO operations. For sizes 1/2/4/8 we perform
+        // a single access; for larger sizes we split into chunks.
+        unsafe {
+            match size_of::<T>() {
+                1 => convert(Self::read_u8(ptr.cast().as_ptr())),
+                2 => convert(Self::read_u16(ptr.cast().as_ptr())),
+                4 => convert(Self::read_u32(ptr.cast().as_ptr())),
+                8 => convert(Self::read_u64(ptr.cast().as_ptr())),
+                _ => {
+                    let mut value = T::new_zeroed();
+                    Self::read_slice(ptr.cast(), value.as_mut_bytes());
+                    value
+                }
+            }
+        }
+    }
+
+    /// Reads from MMIO by splitting into naturally-sized chunks.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be valid for MMIO reads spanning `slice.len()` bytes.
+    unsafe fn read_slice(ptr: NonNull<u8>, slice: &mut [u8]) {
+        if let Some((first, rest)) = slice.split_at_mut_checked(8) {
+            // SAFETY: Caller guarantees ptr is valid for the full slice length.
+            unsafe {
+                Self::read_u64(ptr.cast().as_ptr()).write_to(first).unwrap();
+                Self::read_slice(ptr.add(8), rest);
+            }
+        } else if let Some((first, rest)) = slice.split_at_mut_checked(4) {
+            // SAFETY: Caller guarantees ptr is valid for the full slice length.
+            unsafe {
+                Self::read_u32(ptr.cast().as_ptr()).write_to(first).unwrap();
+                Self::read_slice(ptr.add(4), rest);
+            }
+        } else if let Some((first, rest)) = slice.split_at_mut_checked(2) {
+            // SAFETY: Caller guarantees ptr is valid for the full slice length.
+            unsafe {
+                Self::read_u16(ptr.cast().as_ptr()).write_to(first).unwrap();
+                Self::read_slice(ptr.add(2), rest);
+            }
+        } else if let [first, rest @ ..] = slice {
+            // SAFETY: Caller guarantees ptr is valid for the full slice length.
+            unsafe {
+                *first = Self::read_u8(ptr.as_ptr());
+                Self::read_slice(ptr.add(1), rest);
+            }
+        }
+    }
+
+    /// Writes to MMIO by splitting into naturally-sized chunks.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be valid for MMIO writes spanning `slice.len()` bytes.
+    unsafe fn write_slice(ptr: NonNull<u8>, slice: &[u8]) {
+        if let Some((first, rest)) = slice.split_at_checked(8) {
+            // SAFETY: Caller guarantees ptr is valid for the full slice length.
+            unsafe {
+                Self::write_u64(ptr.cast().as_ptr(), u64::read_from_bytes(first).unwrap());
+                Self::write_slice(ptr.add(8), rest);
+            }
+        } else if let Some((first, rest)) = slice.split_at_checked(4) {
+            // SAFETY: Caller guarantees ptr is valid for the full slice length.
+            unsafe {
+                Self::write_u32(ptr.cast().as_ptr(), u32::read_from_bytes(first).unwrap());
+                Self::write_slice(ptr.add(4), rest);
+            }
+        } else if let Some((first, rest)) = slice.split_at_checked(2) {
+            // SAFETY: Caller guarantees ptr is valid for the full slice length.
+            unsafe {
+                Self::write_u16(ptr.cast().as_ptr(), u16::read_from_bytes(first).unwrap());
+                Self::write_slice(ptr.add(2), rest);
+            }
+        } else if let [first, rest @ ..] = slice {
+            // SAFETY: Caller guarantees ptr is valid for the full slice length.
+            unsafe {
+                Self::write_u8(ptr.as_ptr(), *first);
+                Self::write_slice(ptr.add(1), rest);
+            }
+        }
+    }
+
+    /// Performs an MMIO write of the given value.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be valid to perform an MMIO write to.
+    unsafe fn mmio_write<T: Immutable + IntoBytes>(ptr: NonNull<T>, value: T) {
+        // SAFETY: ptr is a valid, aligned pointer to MMIO address space. For sizes 1/2/4/8 we
+        // perform a single access; for larger sizes we split into chunks.
+        unsafe {
+            match size_of::<T>() {
+                1 => Self::write_u8(ptr.cast().as_ptr(), value.as_bytes()[0]),
+                2 => Self::write_u16(ptr.cast().as_ptr(), convert(value)),
+                4 => Self::write_u32(ptr.cast().as_ptr(), convert(value)),
+                8 => Self::write_u64(ptr.cast().as_ptr(), convert(value)),
+                _ => Self::write_slice(ptr.cast(), value.as_bytes()),
+            }
+        }
+    }
 }
 
 unsafe extern "Rust" {
@@ -198,6 +307,60 @@ macro_rules! set_mmio_ops {
     };
 }
 
+/// MmioOps backend delegating to consumer-provided extern functions.
+struct Ops;
+
+// SAFETY: Each method delegates to the consumer-provided extern function of the matching width.
+unsafe impl MmioOps for Ops {
+    unsafe fn read_u8(src: *const u8) -> u8 {
+        // SAFETY: Caller guarantees src is valid and aligned.
+        unsafe { __safe_mmio_read_u8(src) }
+    }
+
+    unsafe fn read_u16(src: *const u16) -> u16 {
+        // SAFETY: Caller guarantees src is valid and aligned.
+        unsafe { __safe_mmio_read_u16(src) }
+    }
+
+    unsafe fn read_u32(src: *const u32) -> u32 {
+        // SAFETY: Caller guarantees src is valid and aligned.
+        unsafe { __safe_mmio_read_u32(src) }
+    }
+
+    unsafe fn read_u64(src: *const u64) -> u64 {
+        // SAFETY: Caller guarantees src is valid and aligned.
+        unsafe { __safe_mmio_read_u64(src) }
+    }
+
+    unsafe fn write_u8(dst: *mut u8, value: u8) {
+        // SAFETY: Caller guarantees dst is valid and aligned.
+        unsafe {
+            __safe_mmio_write_u8(dst, value);
+        }
+    }
+
+    unsafe fn write_u16(dst: *mut u16, value: u16) {
+        // SAFETY: Caller guarantees dst is valid and aligned.
+        unsafe {
+            __safe_mmio_write_u16(dst, value);
+        }
+    }
+
+    unsafe fn write_u32(dst: *mut u32, value: u32) {
+        // SAFETY: Caller guarantees dst is valid and aligned.
+        unsafe {
+            __safe_mmio_write_u32(dst, value);
+        }
+    }
+
+    unsafe fn write_u64(dst: *mut u64, value: u64) {
+        // SAFETY: Caller guarantees dst is valid and aligned.
+        unsafe {
+            __safe_mmio_write_u64(dst, value);
+        }
+    }
+}
+
 impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, T> {
     /// Performs an MMIO read and returns the value.
     ///
@@ -212,7 +375,7 @@ impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, T> {
     /// This field must be safe to perform an MMIO read from.
     pub unsafe fn read_unsafe(&mut self) -> T {
         // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
-        unsafe { mmio_read(self.regs) }
+        unsafe { Ops::mmio_read(self.regs) }
     }
 }
 
@@ -226,16 +389,9 @@ impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, T> {
     ///
     /// This field must be safe to perform an MMIO write to.
     pub unsafe fn write_unsafe(&mut self, value: T) {
-        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space. The
-        // extern functions are provided by the consumer via set_mmio_ops!().
+        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
         unsafe {
-            match size_of::<T>() {
-                1 => __safe_mmio_write_u8(self.regs.cast().as_ptr(), value.as_bytes()[0]),
-                2 => __safe_mmio_write_u16(self.regs.cast().as_ptr(), convert(value)),
-                4 => __safe_mmio_write_u32(self.regs.cast().as_ptr(), convert(value)),
-                8 => __safe_mmio_write_u64(self.regs.cast().as_ptr(), convert(value)),
-                _ => write_slice(self.regs.cast(), value.as_bytes()),
-            }
+            Ops::mmio_write(self.regs, value);
         }
     }
 }
@@ -252,105 +408,12 @@ impl<T: FromBytes + IntoBytes> SharedMmioPointer<'_, T> {
     /// side-effects.
     pub unsafe fn read_unsafe(&self) -> T {
         // SAFETY: self.regs is always a valid pointer to MMIO address space.
-        unsafe { mmio_read(self.regs) }
-    }
-}
-
-/// Performs an MMIO read and returns the value.
-///
-/// # Safety
-///
-/// The pointer must be valid to perform an MMIO read from.
-unsafe fn mmio_read<T: FromBytes + IntoBytes>(ptr: NonNull<T>) -> T {
-    // SAFETY: ptr is a valid, aligned pointer to MMIO address space. The extern functions are
-    // provided by the consumer via set_mmio_ops!(). For sizes 1/2/4/8 we perform a single
-    // access; for larger sizes we split into chunks. The MaybeUninit is fully initialized before
-    // calling assume_init().
-    unsafe {
-        match size_of::<T>() {
-            1 => convert(__safe_mmio_read_u8(ptr.cast().as_ptr())),
-            2 => convert(__safe_mmio_read_u16(ptr.cast().as_ptr())),
-            4 => convert(__safe_mmio_read_u32(ptr.cast().as_ptr())),
-            8 => convert(__safe_mmio_read_u64(ptr.cast().as_ptr())),
-            _ => {
-                let mut value = T::new_zeroed();
-                read_slice(ptr.cast(), value.as_mut_bytes());
-                value
-            }
-        }
+        unsafe { Ops::mmio_read(self.regs) }
     }
 }
 
 fn convert<T: Immutable + IntoBytes, U: FromBytes>(value: T) -> U {
     U::read_from_bytes(value.as_bytes()).unwrap()
-}
-
-/// # Safety
-///
-/// `ptr` must be valid for MMIO writes spanning `slice.len()` bytes.
-unsafe fn write_slice(ptr: NonNull<u8>, slice: &[u8]) {
-    if let Some((first, rest)) = slice.split_at_checked(8) {
-        // SAFETY: Caller guarantees ptr is valid for the full slice length.
-        unsafe {
-            __safe_mmio_write_u64(ptr.cast().as_ptr(), u64::read_from_bytes(first).unwrap());
-            write_slice(ptr.add(8), rest);
-        }
-    } else if let Some((first, rest)) = slice.split_at_checked(4) {
-        // SAFETY: Caller guarantees ptr is valid for the full slice length.
-        unsafe {
-            __safe_mmio_write_u32(ptr.cast().as_ptr(), u32::read_from_bytes(first).unwrap());
-            write_slice(ptr.add(4), rest);
-        }
-    } else if let Some((first, rest)) = slice.split_at_checked(2) {
-        // SAFETY: Caller guarantees ptr is valid for the full slice length.
-        unsafe {
-            __safe_mmio_write_u16(ptr.cast().as_ptr(), u16::read_from_bytes(first).unwrap());
-            write_slice(ptr.add(2), rest);
-        }
-    } else if let [first, rest @ ..] = slice {
-        // SAFETY: Caller guarantees ptr is valid for the full slice length.
-        unsafe {
-            __safe_mmio_write_u8(ptr.as_ptr(), *first);
-            write_slice(ptr.add(1), rest);
-        }
-    }
-}
-
-/// # Safety
-///
-/// `ptr` must be valid for MMIO reads spanning `slice.len()` bytes.
-unsafe fn read_slice(ptr: NonNull<u8>, slice: &mut [u8]) {
-    if let Some((first, rest)) = slice.split_at_mut_checked(8) {
-        // SAFETY: Caller guarantees ptr is valid for the full slice length.
-        unsafe {
-            __safe_mmio_read_u64(ptr.cast().as_ptr())
-                .write_to(first)
-                .unwrap();
-            read_slice(ptr.add(8), rest);
-        }
-    } else if let Some((first, rest)) = slice.split_at_mut_checked(4) {
-        // SAFETY: Caller guarantees ptr is valid for the full slice length.
-        unsafe {
-            __safe_mmio_read_u32(ptr.cast().as_ptr())
-                .write_to(first)
-                .unwrap();
-            read_slice(ptr.add(4), rest);
-        }
-    } else if let Some((first, rest)) = slice.split_at_mut_checked(2) {
-        // SAFETY: Caller guarantees ptr is valid for the full slice length.
-        unsafe {
-            __safe_mmio_read_u16(ptr.cast().as_ptr())
-                .write_to(first)
-                .unwrap();
-            read_slice(ptr.add(2), rest);
-        }
-    } else if let [first, rest @ ..] = slice {
-        // SAFETY: Caller guarantees ptr is valid for the full slice length.
-        unsafe {
-            *first = __safe_mmio_read_u8(ptr.as_ptr());
-            read_slice(ptr.add(1), rest);
-        }
-    }
 }
 
 #[cfg(test)]
