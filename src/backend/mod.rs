@@ -1,4 +1,3 @@
-#[cfg(any(target_arch = "aarch64", feature = "custom-mmio"))]
 pub mod mmio_ops;
 
 #[cfg(all(not(target_arch = "aarch64"), not(feature = "custom-mmio")))]
