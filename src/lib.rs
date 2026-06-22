@@ -9,16 +9,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-#[cfg(all(target_arch = "aarch64", not(feature = "custom-mmio")))]
-mod aarch64_mmio;
-#[cfg(any(target_arch = "aarch64", feature = "custom-mmio"))]
-mod backend;
-#[cfg(feature = "custom-mmio")]
-pub mod custom_mmio;
 pub mod fields;
 mod physical;
-#[cfg(all(not(target_arch = "aarch64"), not(feature = "custom-mmio")))]
-mod volatile_mmio;
 
 use crate::fields::{ReadOnly, ReadPure, ReadPureWrite, ReadWrite, WriteOnly};
 use core::{
@@ -30,6 +22,11 @@ use core::{
 };
 pub use physical::PhysicalInstance;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
+
+mod backend;
+
+#[cfg(feature = "custom-mmio")]
+pub use crate::backend::custom_mmio;
 
 /// A unique owned pointer to the registers of some MMIO device.
 ///
