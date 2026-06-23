@@ -1524,4 +1524,82 @@ mod tests {
         assert_eq!(iter.next().unwrap().read(), 3);
         assert_eq!(iter.next(), None);
     }
+
+    /// 15 bytes = 8 + 4 + 2 + 1, exercises all chunk-size paths in read_slice/write_slice.
+    #[repr(C)]
+    #[derive(Debug, PartialEq, Eq, Clone, Copy, FromBytes, IntoBytes, Immutable)]
+    struct A([u8; 15]);
+
+    const A_VAL: A = A([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+
+    /// 8-aligned buffer large enough to place an `A` (15 bytes) at any byte offset 0..8.
+    #[repr(C, align(8))]
+    struct AlignedBuf([u8; 32]);
+
+    /// Write `A_VAL` to offset `offset` within an 8-aligned buffer, read it back, and verify.
+    /// Different offsets exercise different ramp-up/ramp-down patterns in write_slice/read_slice.
+    fn round_trip_at_offset(offset: usize) {
+        assert!(offset + size_of::<A>() <= 32);
+        let mut buf = AlignedBuf([0u8; 32]);
+
+        let base = buf.0.as_mut_ptr();
+        // SAFETY: offset + 15 <= 32 (asserted above), and base is valid for 32 bytes.
+        let ptr = unsafe { NonNull::new_unchecked(base.add(offset).cast::<A>()) };
+        let actual_align = ptr.as_ptr() as usize % 8;
+        assert_eq!(actual_align, offset % 8);
+
+        // SAFETY: ptr points into our local buffer, which is valid and unique.
+        let mut mmio = unsafe { UniqueMmioPointer::new(ptr) };
+
+        // SAFETY: writing to and reading from our buffer is safe.
+        unsafe { mmio.write_unsafe(A_VAL) };
+        // SAFETY: writing to and reading from our buffer is safe.
+        let readback = unsafe { mmio.read_unsafe() };
+        assert_eq!(readback, A_VAL, "round-trip failed at offset {offset}");
+    }
+
+    #[test]
+    fn unique_read_write_aligned_0() {
+        // 8-aligned: chunks 8 + 4 + 2 + 1
+        round_trip_at_offset(0);
+    }
+
+    #[test]
+    fn unique_read_write_aligned_1() {
+        // offset 1: ramp-up 1 byte, then 8 + 4 + 2
+        round_trip_at_offset(1);
+    }
+
+    #[test]
+    fn unique_read_write_aligned_2() {
+        // offset 2: ramp-up 2 bytes, then 8 + 4 + 1
+        round_trip_at_offset(2);
+    }
+
+    #[test]
+    fn unique_read_write_aligned_3() {
+        // offset 3: ramp-up 1 + 2 + 4 bytes, then 8
+        round_trip_at_offset(3);
+    }
+
+    #[test]
+    fn unique_read_write_aligned_4() {
+        // offset 4: ramp-up 4 bytes, then 8 + 2 + 1
+        round_trip_at_offset(4);
+    }
+
+    #[test]
+    fn unique_read_write_aligned_5() {
+        round_trip_at_offset(5);
+    }
+
+    #[test]
+    fn unique_read_write_aligned_6() {
+        round_trip_at_offset(6);
+    }
+
+    #[test]
+    fn unique_read_write_aligned_7() {
+        round_trip_at_offset(7);
+    }
 }

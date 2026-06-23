@@ -103,19 +103,25 @@ pub unsafe trait MmioOps {
     ///
     /// `ptr` must be valid for MMIO reads spanning `slice.len()` bytes.
     unsafe fn read_slice(ptr: NonNull<u8>, slice: &mut [u8]) {
-        if let Some((first, rest)) = slice.split_at_mut_checked(8) {
+        if let Some((first, rest)) = slice.split_at_mut_checked(8)
+            && ptr.align_offset(core::mem::align_of::<u64>()) == 0
+        {
             // SAFETY: Caller guarantees ptr is valid for the full slice length.
             unsafe {
                 Self::read_u64(ptr.cast().as_ptr()).write_to(first).unwrap();
                 Self::read_slice(ptr.add(8), rest);
             }
-        } else if let Some((first, rest)) = slice.split_at_mut_checked(4) {
+        } else if let Some((first, rest)) = slice.split_at_mut_checked(4)
+            && ptr.align_offset(core::mem::align_of::<u32>()) == 0
+        {
             // SAFETY: Caller guarantees ptr is valid for the full slice length.
             unsafe {
                 Self::read_u32(ptr.cast().as_ptr()).write_to(first).unwrap();
                 Self::read_slice(ptr.add(4), rest);
             }
-        } else if let Some((first, rest)) = slice.split_at_mut_checked(2) {
+        } else if let Some((first, rest)) = slice.split_at_mut_checked(2)
+            && ptr.align_offset(core::mem::align_of::<u16>()) == 0
+        {
             // SAFETY: Caller guarantees ptr is valid for the full slice length.
             unsafe {
                 Self::read_u16(ptr.cast().as_ptr()).write_to(first).unwrap();
@@ -136,19 +142,25 @@ pub unsafe trait MmioOps {
     ///
     /// `ptr` must be valid for MMIO writes spanning `slice.len()` bytes.
     unsafe fn write_slice(ptr: NonNull<u8>, slice: &[u8]) {
-        if let Some((first, rest)) = slice.split_at_checked(8) {
+        if let Some((first, rest)) = slice.split_at_checked(8)
+            && ptr.align_offset(core::mem::align_of::<u64>()) == 0
+        {
             // SAFETY: Caller guarantees ptr is valid for the full slice length.
             unsafe {
                 Self::write_u64(ptr.cast().as_ptr(), u64::read_from_bytes(first).unwrap());
                 Self::write_slice(ptr.add(8), rest);
             }
-        } else if let Some((first, rest)) = slice.split_at_checked(4) {
+        } else if let Some((first, rest)) = slice.split_at_checked(4)
+            && ptr.align_offset(core::mem::align_of::<u32>()) == 0
+        {
             // SAFETY: Caller guarantees ptr is valid for the full slice length.
             unsafe {
                 Self::write_u32(ptr.cast().as_ptr(), u32::read_from_bytes(first).unwrap());
                 Self::write_slice(ptr.add(4), rest);
             }
-        } else if let Some((first, rest)) = slice.split_at_checked(2) {
+        } else if let Some((first, rest)) = slice.split_at_checked(2)
+            && ptr.align_offset(core::mem::align_of::<u16>()) == 0
+        {
             // SAFETY: Caller guarantees ptr is valid for the full slice length.
             unsafe {
                 Self::write_u16(ptr.cast().as_ptr(), u16::read_from_bytes(first).unwrap());
