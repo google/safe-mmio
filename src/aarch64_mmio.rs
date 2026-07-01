@@ -10,6 +10,7 @@ macro_rules! asm_mmio {
     ($t:ty, $read_name:ident, $read_assembly:literal, $write_name:ident, $write_assembly:literal) => {
         unsafe fn $read_name(ptr: *const $t) -> $t {
             let value;
+            // SAFETY: Caller guarantees ptr is valid and aligned for the access width.
             unsafe {
                 core::arch::asm!(
                     $read_assembly,
@@ -21,6 +22,7 @@ macro_rules! asm_mmio {
         }
 
         unsafe fn $write_name(ptr: *mut $t, value: $t) {
+            // SAFETY: Caller guarantees ptr is valid and aligned for the access width.
             unsafe {
                 core::arch::asm!(
                     $write_assembly,
