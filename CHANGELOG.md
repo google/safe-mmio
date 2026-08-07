@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Bugfixes
+
+- Fixed incorrect MSRV; it is now 1.88.
+
 ## 0.3.1
 
 ### Breaking changes
