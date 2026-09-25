@@ -5,6 +5,9 @@
 ### Bugfixes
 
 - Fixed incorrect MSRV; it is now 1.88.
+- Builds instrumented by the [Kani](https://github.com/model-checking/kani) model checker now use
+  the volatile backend on `aarch64` too, since Kani cannot translate the inline assembly of the
+  `aarch64` backend. Every other build is unchanged.
 
 ## 0.3.1
 
