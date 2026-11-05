@@ -1,5 +1,14 @@
 # Changelog
 
+### Unreleased
+
+### Bugfixes
+
+- Fixed soundness bug: `split_some` was implemented on `SharedMmioPointer<[T]>` rather than
+  `UniqueMmioPointer<[T]>`. It is now only implemented on `UniqueMmioPointer<[T]>`. This is
+  technically a breaking change, but any code calling it on a `SharedMmioPointer` before was
+  unsound.
+
 ## 0.3.2
 
 ### Bugfixes
