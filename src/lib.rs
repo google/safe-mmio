@@ -1268,6 +1268,24 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn split_some_array_out_of_bounds() {
+        let mut foo = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+        let owned = UniqueMmioPointer::from(&mut foo);
+
+        owned.split_some([3]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn split_some_slice_out_of_bounds() {
+        let mut foo = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+        let owned = UniqueMmioPointer::from(foo.as_mut_slice());
+
+        owned.split_some([3]);
+    }
+
+    #[test]
     fn array_field() {
         #[repr(C)]
         struct Regs {
