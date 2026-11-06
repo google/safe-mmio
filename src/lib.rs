@@ -224,6 +224,28 @@ impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, WriteOnly<T>> {
 }
 
 impl<'a, T> UniqueMmioPointer<'a, [T]> {
+    /// Splits a `UniqueMmioPointer` to a slice into an array of `UniqueMmioPointer`s, taking only
+    /// the `chosen` indices.
+    ///
+    /// Panics if `chosen` contains the same index more than once, or any index out of bounds.
+    pub fn split_some<const N: usize>(self, chosen: [usize; N]) -> [UniqueMmioPointer<'a, T>; N] {
+        for (i, a) in chosen.iter().enumerate() {
+            for (j, b) in chosen.iter().enumerate() {
+                assert!(i == j || a != b, "chosen array must not contain duplicates");
+            }
+        }
+        chosen.map(|chosen_index| {
+            UniqueMmioPointer(SharedMmioPointer {
+                // SAFETY: self.regs is always unique and valid for MMIO access. We checked that
+                // `chosen` doesn't contain duplicates so the pointers we split it into don't
+                // overlap, so the same applies to each of them.
+                regs: NonNull::new(unsafe { &raw mut (*self.regs.as_ptr())[chosen_index] })
+                    .unwrap(),
+                phantom: PhantomData,
+            })
+        })
+    }
+
     /// Returns a `UniqueMmioPointer` to an element of this slice, or `None` if the index is out of
     /// bounds.
     ///
@@ -708,28 +730,6 @@ impl<T: FromBytes + IntoBytes> SharedMmioPointer<'_, ReadPureWrite<T>> {
 }
 
 impl<'a, T> SharedMmioPointer<'a, [T]> {
-    /// Splits a `UniqueMmioPointer` to a slice into an array of `UniqueMmioPointer`s, taking only
-    /// the `chosen` indices.
-    ///
-    /// Panics if `chosen` contains the same index more than once, or any index out of bounds.
-    pub fn split_some<const N: usize>(self, chosen: [usize; N]) -> [UniqueMmioPointer<'a, T>; N] {
-        for (i, a) in chosen.iter().enumerate() {
-            for (j, b) in chosen.iter().enumerate() {
-                assert!(i == j || a != b, "chosen array must not contain duplicates");
-            }
-        }
-        chosen.map(|chosen_index| {
-            UniqueMmioPointer(SharedMmioPointer {
-                // SAFETY: self.regs is always unique and valid for MMIO access. We checked that
-                // `chosen` doesn't contain duplicates so the pointers we split it into don't
-                // overlap, so the same applies to each of them.
-                regs: NonNull::new(unsafe { &raw mut (*self.regs.as_ptr())[chosen_index] })
-                    .unwrap(),
-                phantom: PhantomData,
-            })
-        })
-    }
-
     /// Returns a `SharedMmioPointer` to an element of this slice, or `None` if the index is out of
     /// bounds.
     pub const fn get(&self, index: usize) -> Option<SharedMmioPointer<'a, T>> {
@@ -1239,6 +1239,50 @@ mod tests {
             shared_copy.get(1).unwrap()
         };
         assert_eq!(second.read(), 2);
+    }
+
+    #[test]
+    fn split_some_unique_slice() {
+        let mut foo = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+        let owned = UniqueMmioPointer::from(foo.as_mut_slice());
+
+        let [mut a, mut b]: [UniqueMmioPointer<_>; _] = owned.split_some([0, 2]);
+
+        a.write(41);
+        b.write(43);
+    }
+
+    #[test]
+    fn split_some_shared_slice() {
+        let foo = [ReadPure(1), ReadPure(2), ReadPure(3)];
+        let shared = SharedMmioPointer::from(foo.as_slice());
+
+        let a = shared.get(0).unwrap();
+        let b = shared.get(2).unwrap();
+
+        #[expect(dropping_copy_types)]
+        drop(shared);
+
+        assert_eq!(a.read(), 1);
+        assert_eq!(b.read(), 3);
+    }
+
+    #[test]
+    #[should_panic]
+    fn split_some_array_out_of_bounds() {
+        let mut foo = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+        let owned = UniqueMmioPointer::from(&mut foo);
+
+        owned.split_some([3]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn split_some_slice_out_of_bounds() {
+        let mut foo = [ReadWrite(1), ReadWrite(2), ReadWrite(3)];
+        let owned = UniqueMmioPointer::from(foo.as_mut_slice());
+
+        owned.split_some([3]);
     }
 
     #[test]
