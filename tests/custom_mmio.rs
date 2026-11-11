@@ -67,11 +67,15 @@ mod custom_ops {
     safe_mmio::set_mmio_ops!(VolatileOps);
 }
 
-#[repr(C)]
+#[repr(C, align(8))]
 struct DeviceRegs {
     status: ReadPure<u32>,
     control: ReadWrite<u32>,
     data: ReadWrite<u64>,
+    tag: ReadWrite<u8>,
+    unaligned_16: ReadWrite<[u8; 2]>,
+    unaligned_32: ReadWrite<[u8; 4]>,
+    unaligned_64: ReadWrite<[u8; 8]>,
 }
 
 #[test]
@@ -80,6 +84,10 @@ fn custom_mmio_backend() {
         status: ReadPure(0x0000_00FF),
         control: ReadWrite(0),
         data: ReadWrite(0),
+        tag: ReadWrite(0),
+        unaligned_16: ReadWrite([0; 2]),
+        unaligned_32: ReadWrite([0; 4]),
+        unaligned_64: ReadWrite([0; 8]),
     };
 
     let mut ptr = UniqueMmioPointer::from(&mut regs);
@@ -97,4 +105,15 @@ fn custom_mmio_backend() {
     field!(ptr, data).write(0x0123_4567_89AB_CDEF);
     let data = field!(ptr, data).read();
     assert_eq!(data, 0x0123_4567_89AB_CDEF);
+
+    // Unaligned 2-, 4-, and 8-byte fields.
+    field!(ptr, unaligned_16).write([1, 2]);
+    field!(ptr, unaligned_32).write([3, 4, 5, 6]);
+    field!(ptr, unaligned_64).write([7, 8, 9, 10, 11, 12, 13, 14]);
+    assert_eq!(field!(ptr, unaligned_16).read(), [1, 2]);
+    assert_eq!(field!(ptr, unaligned_32).read(), [3, 4, 5, 6]);
+    assert_eq!(
+        field!(ptr, unaligned_64).read(),
+        [7, 8, 9, 10, 11, 12, 13, 14]
+    );
 }

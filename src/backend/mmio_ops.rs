@@ -79,15 +79,15 @@ pub trait MmioOps {
     ///
     /// The pointer must be valid to perform an MMIO read from.
     unsafe fn read<T: FromBytes + IntoBytes>(ptr: NonNull<T>) -> T {
-        // SAFETY: ptr is a valid, aligned pointer to MMIO address space. The implementor
-        // provides correctly-functioning primitive MMIO operations. For sizes 1/2/4/8 we perform
-        // a single access; for larger sizes we split into chunks.
+        // SAFETY: Caller guarantees `ptr` is valid for MMIO reads of `size_of::<T>()` bytes, and
+        // the implementor provides correctly-functioning primitive MMIO operations. For naturally
+        // aligned sizes 1/2/4/8 we perform a single access; otherwise we split into aligned chunks.
         unsafe {
             match size_of::<T>() {
                 1 => convert(Self::read_u8(ptr.cast().as_ptr())),
-                2 => convert(Self::read_u16(ptr.cast().as_ptr())),
-                4 => convert(Self::read_u32(ptr.cast().as_ptr())),
-                8 => convert(Self::read_u64(ptr.cast().as_ptr())),
+                2 if ptr.cast::<u16>().is_aligned() => convert(Self::read_u16(ptr.cast().as_ptr())),
+                4 if ptr.cast::<u32>().is_aligned() => convert(Self::read_u32(ptr.cast().as_ptr())),
+                8 if ptr.cast::<u64>().is_aligned() => convert(Self::read_u64(ptr.cast().as_ptr())),
                 _ => {
                     let mut value = T::new_zeroed();
                     Self::read_slice(ptr.cast(), value.as_mut_bytes());
@@ -187,14 +187,21 @@ pub trait MmioOps {
     ///
     /// `ptr` must be valid to perform an MMIO write to.
     unsafe fn write<T: Immutable + IntoBytes>(ptr: NonNull<T>, value: T) {
-        // SAFETY: ptr is a valid, aligned pointer to MMIO address space. For sizes 1/2/4/8 we
-        // perform a single access; for larger sizes we split into chunks.
+        // SAFETY: Caller guarantees `ptr` is valid for MMIO writes of `size_of::<T>()` bytes. For
+        // naturally aligned sizes 1/2/4/8 we perform a single access; otherwise we split into
+        // aligned chunks.
         unsafe {
             match size_of::<T>() {
                 1 => Self::write_u8(ptr.cast().as_ptr(), value.as_bytes()[0]),
-                2 => Self::write_u16(ptr.cast().as_ptr(), convert(value)),
-                4 => Self::write_u32(ptr.cast().as_ptr(), convert(value)),
-                8 => Self::write_u64(ptr.cast().as_ptr(), convert(value)),
+                2 if ptr.cast::<u16>().is_aligned() => {
+                    Self::write_u16(ptr.cast().as_ptr(), convert(value));
+                }
+                4 if ptr.cast::<u32>().is_aligned() => {
+                    Self::write_u32(ptr.cast().as_ptr(), convert(value));
+                }
+                8 if ptr.cast::<u64>().is_aligned() => {
+                    Self::write_u64(ptr.cast().as_ptr(), convert(value));
+                }
                 _ => Self::write_slice(ptr.cast(), value.as_bytes()),
             }
         }
