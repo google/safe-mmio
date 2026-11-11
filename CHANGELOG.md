@@ -8,6 +8,12 @@
   `UniqueMmioPointer<[T]>`. It is now only implemented on `UniqueMmioPointer<[T]>`. This is
   technically a breaking change, but any code calling it on a `SharedMmioPointer` before was
   unsound.
+- Fixed soundness bug: removed `Deref<Target = SharedMmioPointer<'a, T>>` from
+  `UniqueMmioPointer<'a, T>`, which allowed copying out a `SharedMmioPointer<'a, T>` that outlived
+  the borrow of the `UniqueMmioPointer` and coexisted with mutable accesses. Added
+  `UniqueMmioPointer::as_shared` (returning `SharedMmioPointer<'_, T>` tied to `&self`), inherent
+  `ptr`, `read`, `len`, `is_empty`, and `as_slice` methods on `UniqueMmioPointer`, and updated
+  `field_shared!` to use `as_shared`.
 
 ## 0.3.2
 
