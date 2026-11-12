@@ -463,6 +463,9 @@ impl<'a, T, const LEN: usize> UniqueMmioPointer<'a, [T; LEN]> {
 
     /// Converts this array pointer to an equivalent shared slice pointer.
     ///
+    /// The slice lifetime is tied to that of the `&self` reference, so the MMIO region can't be
+    /// written while the slice lives:
+    ///
     /// ```compile_fail
     /// use safe_mmio::{UniqueMmioPointer, fields::ReadPureWrite};
     ///
@@ -758,6 +761,10 @@ impl<'a, T: ?Sized> SharedMmioPointer<'a, T> {
     }
 
     /// Returns a copy of this `SharedMmioPointer` with the same `'a` lifetime.
+    ///
+    /// This is generally unnecessary as `SharedMmioPointer` is `Copy`, but is provided for
+    /// equivalence to the [`UniqueMmioPointer::as_shared`] method for use by the `field_shared!`
+    /// macro.
     pub const fn as_shared(&self) -> SharedMmioPointer<'a, T> {
         *self
     }
