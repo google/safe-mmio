@@ -4,7 +4,8 @@
 
 //! Wrapper types for MMIO fields.
 
-use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+use core::mem::MaybeUninit;
+use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 
 /// Wrapper for a field which may safely be read but not written. Reading may cause side-effects,
 /// changing the state of the device in some way.
@@ -33,3 +34,9 @@ pub struct ReadWrite<T>(pub T);
 #[derive(Clone, Debug, Default, Eq, FromBytes, Immutable, IntoBytes, KnownLayout, PartialEq)]
 #[repr(transparent)]
 pub struct ReadPureWrite<T>(pub T);
+
+/// Wrapper for a field which must neither be read nor written, such as an inaccessible hole or
+/// padding within a contiguous MMIO region.
+#[derive(FromZeros, Immutable, KnownLayout)]
+#[repr(transparent)]
+pub struct Inaccessible<T>(pub(crate) MaybeUninit<T>);

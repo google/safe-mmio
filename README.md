@@ -53,7 +53,7 @@ of its fields:
 use core::ptr::NonNull;
 use safe_mmio::{
     field,
-    fields::{ReadOnly, ReadPure, ReadWrite, WriteOnly},
+    fields::{Inaccessible, ReadOnly, ReadPure, ReadWrite, WriteOnly},
     UniqueMmioPointer,
 };
 
@@ -61,7 +61,8 @@ use safe_mmio::{
 struct UartRegisters {
     data: ReadWrite<u8>,
     status: ReadPure<u8>,
-    pending_interrupt: ReadOnly<u8>,
+    _reserved: Inaccessible<[u8; 2]>,
+    pending_interrupt: ReadOnly<u32>,
 }
 
 let mut uart_registers: UniqueMmioPointer<UartRegisters> =

@@ -15,11 +15,12 @@ mod physical;
 
 use crate::backend::Ops;
 pub use crate::backend::mmio_ops::MmioOps;
-use crate::fields::{ReadOnly, ReadPure, ReadPureWrite, ReadWrite, WriteOnly};
+use crate::fields::{Inaccessible, ReadOnly, ReadPure, ReadPureWrite, ReadWrite, WriteOnly};
 use core::{
     array,
-    fmt::Debug,
+    fmt::{self, Debug, Formatter},
     marker::PhantomData,
+    mem::MaybeUninit,
     ops::Range,
     ptr::{self, NonNull, slice_from_raw_parts_mut},
 };
@@ -59,13 +60,20 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     ///
     /// # Safety
     ///
-    /// `regs` must be a properly aligned and valid pointer to some MMIO address space of type T,
-    /// which is mapped as device memory and valid to read and write from any thread with volatile
-    /// operations. There must not be any other aliases which are used to access the same MMIO
-    /// region while this `UniqueMmioPointer` exists.
+    /// `regs` must be a properly aligned, non-null pointer whose address range of size `T` lies
+    /// within a single contiguous address space region without wrapping, such that raw pointer
+    /// projections to its fields or elements are valid.
     ///
-    /// If `T` contains any fields wrapped in [`ReadOnly`], [`WriteOnly`] or [`ReadWrite`] then they
-    /// must indeed be safe to perform MMIO reads or writes on.
+    /// Any bytes of `T` outside [`Inaccessible`] fields must not have
+    /// any other aliases used to access the same MMIO registers while this `UniqueMmioPointer`
+    /// exists, and if accessed must be mapped as device memory and valid to access from any thread
+    /// with volatile operations. Bytes within [`Inaccessible`] fields
+    /// are never read or written through this pointer and do not need to be mapped or accessible.
+    ///
+    /// If `T` contains any fields wrapped in [`ReadOnly`], [`ReadPure`], [`WriteOnly`],
+    /// [`ReadWrite`], or [`ReadPureWrite`] then they must indeed be safe to perform the
+    /// corresponding MMIO reads or writes on (and without side-effects for [`ReadPure`] and
+    /// [`ReadPureWrite`] reads).
     pub const unsafe fn new(regs: NonNull<T>) -> Self {
         Self(SharedMmioPointer {
             regs,
@@ -272,6 +280,31 @@ impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, WriteOnly<T>> {
         unsafe {
             self.write_unsafe(WriteOnly(value));
         }
+    }
+}
+
+impl<T> Inaccessible<T> {
+    /// Creates a new `Inaccessible<T>` value for testing.
+    pub const fn new() -> Self {
+        Self(MaybeUninit::uninit())
+    }
+}
+
+impl<T> Default for Inaccessible<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> Clone for Inaccessible<T> {
+    fn clone(&self) -> Self {
+        Self::new()
+    }
+}
+
+impl<T> Debug for Inaccessible<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Inaccessible").finish_non_exhaustive()
     }
 }
 
@@ -1869,5 +1902,133 @@ mod tests {
             field_shared!(shared, u32_pair).read(),
             [0x1122_3344, 0x5566_7788]
         );
+    }
+
+    #[test]
+    fn inaccessible_layout_and_traits() {
+        use crate::fields::Inaccessible;
+        use core::{
+            fmt::Write,
+            mem::{align_of, offset_of, size_of},
+        };
+        use zerocopy::{FromZeros, KnownLayout};
+
+        struct SmallBuf {
+            bytes: [u8; 64],
+            len: usize,
+        }
+
+        impl Write for SmallBuf {
+            fn write_str(&mut self, s: &str) -> core::fmt::Result {
+                let bytes = s.as_bytes();
+                let end = self.len + bytes.len();
+                self.bytes[self.len..end].copy_from_slice(bytes);
+                self.len = end;
+                Ok(())
+            }
+        }
+
+        assert_eq!(size_of::<Inaccessible<u8>>(), size_of::<u8>());
+        assert_eq!(align_of::<Inaccessible<u8>>(), align_of::<u8>());
+        assert_eq!(size_of::<Inaccessible<u32>>(), size_of::<u32>());
+        assert_eq!(align_of::<Inaccessible<u32>>(), align_of::<u32>());
+        assert_eq!(
+            size_of::<Inaccessible<[u8; 0x3000]>>(),
+            size_of::<[u8; 0x3000]>()
+        );
+        assert_eq!(
+            align_of::<Inaccessible<[u8; 0x3000]>>(),
+            align_of::<[u8; 0x3000]>()
+        );
+        assert_eq!(size_of::<Inaccessible<[u32; 0]>>(), 0);
+        assert_eq!(align_of::<Inaccessible<[u32; 0]>>(), align_of::<u32>());
+
+        #[derive(Clone, Debug, Default, FromZeros, Immutable, KnownLayout)]
+        #[repr(C)]
+        struct WithHole {
+            header: ReadWrite<u8>,
+            // 4-byte alignment of `u32` pads `header` to offset 4 and places `tail` at offset 8.
+            _hole: Inaccessible<u32>,
+            tail: ReadPure<u32>,
+        }
+
+        assert_eq!(offset_of!(WithHole, header), 0);
+        assert_eq!(offset_of!(WithHole, _hole), 4);
+        assert_eq!(offset_of!(WithHole, tail), 8);
+        assert_eq!(size_of::<WithHole>(), 12);
+
+        let zeroed = WithHole::new_zeroed();
+        let cloned = zeroed.clone();
+        let mut buf = SmallBuf {
+            bytes: [0; 64],
+            len: 0,
+        };
+        write!(&mut buf, "{:?}", cloned._hole).unwrap();
+        let formatted = core::str::from_utf8(&buf.bytes[..buf.len]).unwrap();
+        assert!(formatted.contains("Inaccessible"));
+
+        fn assert_send<T: Send>() {}
+        assert_send::<SharedMmioPointer<'_, WithHole>>();
+    }
+
+    #[test]
+    fn inaccessible_contiguous_regions_and_groups() {
+        use crate::fields::Inaccessible;
+        use core::mem::{offset_of, size_of};
+
+        #[repr(C)]
+        struct Section {
+            data: [ReadPure<u32>; 4],
+            _hole: Inaccessible<[u8; 0x1000]>,
+            ext: [ReadPure<u32>; 2],
+            _tail_hole: Inaccessible<[u8; 0x400]>,
+        }
+
+        #[repr(C)]
+        struct Group<const SECTIONS: usize, const PAD_WORDS: usize> {
+            sections: [Section; SECTIONS],
+            _inter_group_pad: Inaccessible<[u32; PAD_WORDS]>,
+        }
+
+        assert_eq!(offset_of!(Section, data), 0);
+        assert_eq!(offset_of!(Section, _hole), 16);
+        assert_eq!(offset_of!(Section, ext), 16 + 0x1000);
+        assert_eq!(offset_of!(Section, _tail_hole), 16 + 0x1000 + 8);
+        assert_eq!(size_of::<Section>(), 16 + 0x1000 + 8 + 0x400);
+        assert_eq!(
+            size_of::<Group<2, 8>>(),
+            2 * size_of::<Section>() + size_of::<[u32; 8]>()
+        );
+        assert_eq!(size_of::<Group<2, 0>>(), 2 * size_of::<Section>());
+
+        let mut group: Group<2, 4> = Group {
+            sections: [
+                Section {
+                    data: [ReadPure(1), ReadPure(2), ReadPure(3), ReadPure(4)],
+                    _hole: Inaccessible::default(),
+                    ext: [ReadPure(10), ReadPure(11)],
+                    _tail_hole: Inaccessible::new(),
+                },
+                Section {
+                    data: [ReadPure(5), ReadPure(6), ReadPure(7), ReadPure(8)],
+                    _hole: Inaccessible::default(),
+                    ext: [ReadPure(20), ReadPure(21)],
+                    _tail_hole: Inaccessible::new(),
+                },
+            ],
+            _inter_group_pad: Inaccessible::new(),
+        };
+
+        let base_addr = (&raw const group) as usize;
+        let mut unique_group = UniqueMmioPointer::from(&mut group);
+        let hole_addr = field!(unique_group, _inter_group_pad).ptr_mut() as usize;
+        assert_eq!(hole_addr, base_addr + 2 * size_of::<Section>());
+
+        let shared_group = SharedMmioPointer::from(unique_group);
+        let sections = field_shared!(shared_group, sections).split();
+        assert_eq!(field_shared!(sections[0], data).get(3).unwrap().read(), 4);
+        assert_eq!(field_shared!(sections[0], ext).get(1).unwrap().read(), 11);
+        assert_eq!(field_shared!(sections[1], data).get(0).unwrap().read(), 5);
+        assert_eq!(field_shared!(sections[1], ext).get(0).unwrap().read(), 20);
     }
 }
