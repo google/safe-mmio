@@ -1,5 +1,12 @@
 # Changelog
 
+### Unreleased
+
+### Improvements
+
+- Added `fields::Inaccessible<T>` wrapper type to represent regions within a contiguous MMIO layout
+  that must neither be read nor written (such as unimplemented holes, protected ranges, or padding).
+
 ### 0.4.0
 
 ### Breaking changes
