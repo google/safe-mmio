@@ -15,6 +15,12 @@
   `ptr`, `read`, `len`, `is_empty`, and `as_slice` methods on `UniqueMmioPointer`, and updated
   `field_shared!` to use `as_shared`.
 
+### Bugfixes
+
+- Fixed soundness bug in `MmioOps::read` and `MmioOps::write`: check that pointers to 2-, 4-, and
+  8-byte types are naturally aligned before calling `read_u16`/`read_u32`/`read_u64` or
+  `write_u16`/`write_u32`/`write_u64`, falling back to `read_slice`/`write_slice` when unaligned.
+
 ## 0.3.2
 
 ### Bugfixes

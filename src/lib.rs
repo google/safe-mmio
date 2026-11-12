@@ -1049,7 +1049,7 @@ impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, T> {
     /// Performs an MMIO write of the given value.
     ///
     /// If `T` is exactly 1, 2, 4 or 8 bytes long and naturally aligned then this will be a single
-    /// operation. Otherwise it will be split into several, reading chunks as large as possible.
+    /// operation. Otherwise it will be split into several, writing chunks as large as possible.
     ///
     /// # Safety
     ///
@@ -1749,15 +1749,18 @@ mod tests {
     #[repr(C, align(8))]
     struct AlignedBuf([u8; 32]);
 
-    /// Write `A_VAL` to offset `offset` within an 8-aligned buffer, read it back, and verify.
+    /// Write `val` to offset `offset` within an 8-aligned buffer, read it back, and verify.
     /// Different offsets exercise different ramp-up/ramp-down patterns in write_slice/read_slice.
-    fn round_trip_at_offset(offset: usize) {
-        assert!(offset + size_of::<A>() <= 32);
+    fn round_trip_value_at_offset<T: Copy + Debug + Eq + FromBytes + IntoBytes + Immutable>(
+        offset: usize,
+        val: T,
+    ) {
+        assert!(offset + size_of::<T>() <= 32);
         let mut buf = AlignedBuf([0u8; 32]);
 
         let base = buf.0.as_mut_ptr();
-        // SAFETY: offset + 15 <= 32 (asserted above), and base is valid for 32 bytes.
-        let ptr = unsafe { NonNull::new_unchecked(base.add(offset).cast::<A>()) };
+        // SAFETY: offset + size_of::<T>() <= 32 (asserted above), and base is valid for 32 bytes.
+        let ptr = unsafe { NonNull::new_unchecked(base.add(offset).cast::<T>()) };
         let actual_align = ptr.as_ptr() as usize % 8;
         assert_eq!(actual_align, offset % 8);
 
@@ -1765,10 +1768,17 @@ mod tests {
         let mut mmio = unsafe { UniqueMmioPointer::new(ptr) };
 
         // SAFETY: writing to and reading from our buffer is safe.
-        unsafe { mmio.write_unsafe(A_VAL) };
+        unsafe { mmio.write_unsafe(val) };
         // SAFETY: writing to and reading from our buffer is safe.
         let readback = unsafe { mmio.read_unsafe() };
-        assert_eq!(readback, A_VAL, "round-trip failed at offset {offset}");
+        assert_eq!(readback, val, "round-trip failed at offset {offset}");
+    }
+
+    fn round_trip_at_offset(offset: usize) {
+        round_trip_value_at_offset(offset, A_VAL);
+        round_trip_value_at_offset(offset, [1u8, 2]);
+        round_trip_value_at_offset(offset, [1u8, 2, 3, 4]);
+        round_trip_value_at_offset(offset, [1u8, 2, 3, 4, 5, 6, 7, 8]);
     }
 
     #[test]
@@ -1814,5 +1824,50 @@ mod tests {
     #[test]
     fn unique_read_write_aligned_7() {
         round_trip_at_offset(7);
+    }
+
+    #[test]
+    fn unaligned_small_fields() {
+        #[repr(C, align(8))]
+        struct Regs {
+            tag: ReadPureWrite<u8>,
+            b2: ReadPureWrite<[u8; 2]>,
+            b4: ReadPureWrite<[u8; 4]>,
+            b8: ReadPureWrite<[u8; 8]>,
+            pad: ReadPureWrite<u8>,
+            u32_pair: ReadPureWrite<[u32; 2]>,
+        }
+
+        let mut regs = Regs {
+            tag: ReadPureWrite(0),
+            b2: ReadPureWrite([0; 2]),
+            b4: ReadPureWrite([0; 4]),
+            b8: ReadPureWrite([0; 8]),
+            pad: ReadPureWrite(0),
+            u32_pair: ReadPureWrite([0; 2]),
+        };
+
+        let mut ptr = UniqueMmioPointer::from(&mut regs);
+        field!(ptr, b2).write([1, 2]);
+        field!(ptr, b4).write([3, 4, 5, 6]);
+        field!(ptr, b8).write([7, 8, 9, 10, 11, 12, 13, 14]);
+        field!(ptr, u32_pair).write([0x1122_3344, 0x5566_7788]);
+
+        assert_eq!(field!(ptr, b2).read(), [1, 2]);
+        assert_eq!(field!(ptr, b4).read(), [3, 4, 5, 6]);
+        assert_eq!(field!(ptr, b8).read(), [7, 8, 9, 10, 11, 12, 13, 14]);
+        assert_eq!(field!(ptr, u32_pair).read(), [0x1122_3344, 0x5566_7788]);
+
+        let shared = SharedMmioPointer::from(&regs);
+        assert_eq!(field_shared!(shared, b2).read(), [1, 2]);
+        assert_eq!(field_shared!(shared, b4).read(), [3, 4, 5, 6]);
+        assert_eq!(
+            field_shared!(shared, b8).read(),
+            [7, 8, 9, 10, 11, 12, 13, 14]
+        );
+        assert_eq!(
+            field_shared!(shared, u32_pair).read(),
+            [0x1122_3344, 0x5566_7788]
+        );
     }
 }
