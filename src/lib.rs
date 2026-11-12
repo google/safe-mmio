@@ -20,7 +20,7 @@ use core::{
     array,
     fmt::Debug,
     marker::PhantomData,
-    ops::{Deref, Range},
+    ops::Range,
     ptr::{self, NonNull, slice_from_raw_parts_mut},
 };
 pub use physical::PhysicalInstance;
@@ -93,6 +93,11 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
         self.0.regs.as_ptr()
     }
 
+    /// Returns a raw const pointer to the MMIO registers.
+    pub const fn ptr(&self) -> *const T {
+        self.0.ptr()
+    }
+
     /// Returns a `NonNull<T>` pointer to the MMIO registers.
     pub const fn ptr_nonnull(&mut self) -> NonNull<T> {
         self.0.regs
@@ -104,6 +109,39 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
         // SAFETY: `ptr` must be properly aligned and valid and within our allocation because it is
         // exactly our allocation.
         unsafe { self.child(ptr) }
+    }
+
+    /// Returns a `SharedMmioPointer` to the same registers, tied to the lifetime of `&self`.
+    ///
+    /// While the returned `SharedMmioPointer` (or any copy or projection of it) is live, this
+    /// `UniqueMmioPointer` remains immutably borrowed and cannot be mutated or moved. To
+    /// permanently convert into a `SharedMmioPointer` with the full `'a` lifetime, use `.into()`.
+    ///
+    /// ```
+    /// use safe_mmio::{UniqueMmioPointer, fields::ReadPureWrite};
+    ///
+    /// let mut fake = ReadPureWrite(1u32);
+    /// let mut unique = UniqueMmioPointer::from(&mut fake);
+    /// let shared = unique.as_shared();
+    /// assert_eq!(shared.read(), 1);
+    /// // Once `shared` is no longer used, `unique` can be mutated again.
+    /// unique.write(2);
+    /// assert_eq!(unique.read(), 2);
+    /// ```
+    ///
+    /// Mutating `unique` while `shared` is still live fails to compile:
+    ///
+    /// ```compile_fail
+    /// use safe_mmio::{UniqueMmioPointer, fields::ReadPureWrite};
+    ///
+    /// let mut fake = ReadPureWrite(1u32);
+    /// let mut unique = UniqueMmioPointer::from(&mut fake);
+    /// let shared = unique.as_shared();
+    /// unique.write(2);
+    /// assert_eq!(shared.read(), 2);
+    /// ```
+    pub const fn as_shared(&self) -> SharedMmioPointer<'_, T> {
+        self.0
     }
 }
 
@@ -171,6 +209,13 @@ impl<T: FromBytes + Immutable + IntoBytes> UniqueMmioPointer<'_, ReadWrite<T>> {
     }
 }
 
+impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, ReadPureWrite<T>> {
+    /// Performs an MMIO read of the entire `T`.
+    pub fn read(&self) -> T {
+        self.0.read()
+    }
+}
+
 impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, ReadPureWrite<T>> {
     /// Performs an MMIO write of the entire `T`.
     pub fn write(&mut self, value: T) {
@@ -200,6 +245,13 @@ impl<T: FromBytes + Immutable + IntoBytes> UniqueMmioPointer<'_, ReadPureWrite<T
         let mut value = self.read();
         f(&mut value);
         self.write(value);
+    }
+}
+
+impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, ReadPure<T>> {
+    /// Performs an MMIO read of the entire `T`.
+    pub fn read(&self) -> T {
+        self.0.read()
     }
 }
 
@@ -236,10 +288,10 @@ impl<'a, T> UniqueMmioPointer<'a, [T]> {
         }
         chosen.map(|chosen_index| {
             UniqueMmioPointer(SharedMmioPointer {
-                // SAFETY: self.regs is always unique and valid for MMIO access. We checked that
+                // SAFETY: self.0.regs is always unique and valid for MMIO access. We checked that
                 // `chosen` doesn't contain duplicates so the pointers we split it into don't
                 // overlap, so the same applies to each of them.
-                regs: NonNull::new(unsafe { &raw mut (*self.regs.as_ptr())[chosen_index] })
+                regs: NonNull::new(unsafe { &raw mut (*self.0.regs.as_ptr())[chosen_index] })
                     .unwrap(),
                 phantom: PhantomData,
             })
@@ -352,6 +404,16 @@ impl<'a, T> UniqueMmioPointer<'a, [T]> {
         // don't split out any other children.
         Some(unsafe { self.split_child(regs) })
     }
+
+    /// Returns the length of the slice.
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns whether the slice is empty.
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl<'a, T, const LEN: usize> UniqueMmioPointer<'a, [T; LEN]> {
@@ -397,6 +459,24 @@ impl<'a, T, const LEN: usize> UniqueMmioPointer<'a, [T; LEN]> {
         // SAFETY: We created regs from the raw array in self.regs, so it must also be valid, unique
         // and within the allocation of self.regs.
         unsafe { self.child(regs) }
+    }
+
+    /// Converts this array pointer to an equivalent shared slice pointer.
+    ///
+    /// The slice lifetime is tied to that of the `&self` reference, so the MMIO region can't be
+    /// written while the slice lives:
+    ///
+    /// ```compile_fail
+    /// use safe_mmio::{UniqueMmioPointer, fields::ReadPureWrite};
+    ///
+    /// let mut fake = [ReadPureWrite(1u32), ReadPureWrite(2)];
+    /// let mut unique = UniqueMmioPointer::from(&mut fake);
+    /// let shared_slice = unique.as_slice();
+    /// unique.get(0).unwrap().write(42);
+    /// assert_eq!(shared_slice.get(0).unwrap().read(), 42);
+    /// ```
+    pub const fn as_slice(&self) -> SharedMmioPointer<'_, [T]> {
+        self.as_shared().as_slice()
     }
 
     /// Returns a `UniqueMmioPointer` to an element of this array, or `None` if the index is out of
@@ -558,14 +638,6 @@ impl<'a, T: ?Sized> From<&'a mut T> for UniqueMmioPointer<'a, T> {
     }
 }
 
-impl<'a, T: ?Sized> Deref for UniqueMmioPointer<'a, T> {
-    type Target = SharedMmioPointer<'a, T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 impl<'a, T> IntoIterator for UniqueMmioPointer<'a, [T]> {
     type Item = UniqueMmioPointer<'a, T>;
 
@@ -686,6 +758,15 @@ impl<'a, T: ?Sized> SharedMmioPointer<'a, T> {
     /// Returns a raw const pointer to the MMIO registers.
     pub const fn ptr(&self) -> *const T {
         self.regs.as_ptr()
+    }
+
+    /// Returns a copy of this `SharedMmioPointer` with the same `'a` lifetime.
+    ///
+    /// This is generally unnecessary as `SharedMmioPointer` is `Copy`, but is provided for
+    /// equivalence to the [`UniqueMmioPointer::as_shared`] method for use by the `field_shared!`
+    /// macro.
+    pub const fn as_shared(&self) -> SharedMmioPointer<'a, T> {
+        *self
     }
 }
 
@@ -959,8 +1040,8 @@ impl<T: FromBytes + IntoBytes> UniqueMmioPointer<'_, T> {
     ///
     /// This field must be safe to perform an MMIO read from.
     pub unsafe fn read_unsafe(&mut self) -> T {
-        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
-        unsafe { Ops::read(self.regs) }
+        // SAFETY: self.0.regs is always a valid and unique pointer to MMIO address space.
+        unsafe { Ops::read(self.0.regs) }
     }
 }
 
@@ -974,9 +1055,9 @@ impl<T: Immutable + IntoBytes> UniqueMmioPointer<'_, T> {
     ///
     /// This field must be safe to perform an MMIO write to.
     pub unsafe fn write_unsafe(&mut self, value: T) {
-        // SAFETY: self.regs is always a valid and unique pointer to MMIO address space.
+        // SAFETY: self.0.regs is always a valid and unique pointer to MMIO address space.
         unsafe {
-            Ops::write(self.regs, value);
+            Ops::write(self.0.regs, value);
         }
     }
 }
@@ -1043,24 +1124,48 @@ macro_rules! split_fields {
     }};
 }
 
-/// Gets a `SharedMmioPointer` to a field of a type wrapped in a `SharedMmioPointer`.
+/// Gets a `SharedMmioPointer` to a field of a type wrapped in a `SharedMmioPointer` or
+/// `UniqueMmioPointer`.
+///
+/// When called on a [`UniqueMmioPointer`], the returned [`SharedMmioPointer`] borrows the
+/// `UniqueMmioPointer`, preventing mutable access while the shared pointer is live:
+///
+/// ```compile_fail
+/// use safe_mmio::{UniqueMmioPointer, field, field_shared, fields::ReadPureWrite};
+///
+/// #[repr(C)]
+/// struct Foo {
+///     a: ReadPureWrite<u32>,
+/// }
+///
+/// let mut foo = Foo { a: ReadPureWrite(1) };
+/// let mut unique = UniqueMmioPointer::from(&mut foo);
+/// let shared_a = field_shared!(unique, a);
+/// field!(unique, a).write(2);
+/// assert_eq!(shared_a.read(), 2);
+/// ```
 #[macro_export]
 macro_rules! field_shared {
-    ($mmio_pointer:expr, $field:ident) => {{
-        _ = &$mmio_pointer;
+    ($mmio_pointer:expr, $field:ident) => {
+        match &$mmio_pointer {
+            mmio_pointer => {
+                let shared = mmio_pointer.as_shared();
 
-        // SAFETY: ptr_mut is guaranteed to return a valid pointer for MMIO, so the pointer to the
-        // field must also be valid. MmioPointer::child gives it the same lifetime as the original
-        // pointer.
-        #[allow(unused_unsafe, reason = "May be nested")]
-        unsafe {
-            let child_pointer = core::ptr::NonNull::new(
-                (&raw const (*$crate::SharedMmioPointer::ptr(&$mmio_pointer)).$field).cast_mut(),
-            )
-            .unwrap();
-            $crate::SharedMmioPointer::child(&$mmio_pointer, child_pointer)
+                // SAFETY: `ptr` is guaranteed to return a valid pointer for MMIO, so the pointer to
+                // the field must also be valid. `SharedMmioPointer::child` gives it the lifetime of
+                // `shared` (`'a` for a `SharedMmioPointer<'a, _>`, or the borrow of `mmio_pointer`
+                // for a `UniqueMmioPointer`).
+                #[allow(unused_unsafe, reason = "May be nested")]
+                unsafe {
+                    let child_pointer = core::ptr::NonNull::new(
+                        (&raw const (*$crate::SharedMmioPointer::ptr(&shared)).$field).cast_mut(),
+                    )
+                    .unwrap();
+                    $crate::SharedMmioPointer::child(&shared, child_pointer)
+                }
+            }
         }
-    }};
+    };
 }
 
 #[cfg(test)]
@@ -1118,6 +1223,14 @@ mod tests {
 
         let shared_b: SharedMmioPointer<ReadPure<u32>> = field_shared!(shared, b);
         assert_eq!(shared_b.read(), 2);
+
+        // Test that the lifetime of a pointer returned from `field_shared!` on a
+        // `SharedMmioPointer` isn't tied to the lifetime of the struct pointer variable.
+        let shared_a = {
+            let shared_copy = shared;
+            field_shared!(shared_copy, a)
+        };
+        assert_eq!(shared_a.read(), 1);
     }
 
     #[test]
@@ -1132,13 +1245,20 @@ mod tests {
             a: ReadPureWrite(1),
             b: ReadPure(2),
         };
-        let unique: UniqueMmioPointer<Foo> = UniqueMmioPointer::from(&mut foo);
+        let mut unique: UniqueMmioPointer<Foo> = UniqueMmioPointer::from(&mut foo);
 
         let shared_a: SharedMmioPointer<ReadPureWrite<u32>> = field_shared!(unique, a);
         assert_eq!(shared_a.read(), 1);
 
         let shared_b: SharedMmioPointer<ReadPure<u32>> = field_shared!(unique, b);
         assert_eq!(shared_b.read(), 2);
+
+        let shared_foo: SharedMmioPointer<Foo> = unique.as_shared();
+        assert_eq!(field_shared!(shared_foo, a).read(), 1);
+
+        // Once the shared borrows above are no longer used, `unique` can be mutated again.
+        field!(unique, a).write(42);
+        assert_eq!(field_shared!(unique, a).read(), 42);
     }
 
     #[test]
