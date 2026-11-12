@@ -141,10 +141,7 @@ impl<T: ?Sized> UniqueMmioPointer<'_, T> {
     /// assert_eq!(shared.read(), 2);
     /// ```
     pub const fn as_shared(&self) -> SharedMmioPointer<'_, T> {
-        SharedMmioPointer {
-            regs: self.0.regs,
-            phantom: PhantomData,
-        }
+        self.0
     }
 }
 
