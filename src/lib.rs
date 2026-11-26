@@ -1081,20 +1081,25 @@ impl<T: FromBytes + IntoBytes> SharedMmioPointer<'_, T> {
 /// Gets a `UniqueMmioPointer` to a field of a type wrapped in a `UniqueMmioPointer`.
 #[macro_export]
 macro_rules! field {
-    ($mmio_pointer:expr, $field:ident) => {{
-        _ = &mut $mmio_pointer;
+    ($mmio_pointer:expr, $field:ident) => {
+        match &mut $mmio_pointer {
+            mmio_pointer => {
+                // Make sure `mmio_pointer` is the right type and coerces at most once.
+                let mmio_pointer: &mut $crate::UniqueMmioPointer<_> = mmio_pointer;
 
-        // SAFETY: ptr_mut is guaranteed to return a valid pointer for MMIO, so the pointer to the
-        // field must also be valid. UniqueMmioPointer::child gives it the same lifetime as the
-        // original pointer.
-        unsafe {
-            let child_pointer = core::ptr::NonNull::new(
-                &raw mut (*$crate::UniqueMmioPointer::ptr_mut(&mut $mmio_pointer)).$field,
-            )
-            .unwrap();
-            $crate::UniqueMmioPointer::child(&mut $mmio_pointer, child_pointer)
+                // SAFETY: ptr_mut is guaranteed to return a valid pointer for MMIO, so the pointer
+                // to the field must also be valid. UniqueMmioPointer::child gives it the same
+                // lifetime as the original pointer.
+                unsafe {
+                    let child_pointer = core::ptr::NonNull::new(
+                        &raw mut (*$crate::UniqueMmioPointer::ptr_mut(mmio_pointer)).$field,
+                    )
+                    .unwrap();
+                    $crate::UniqueMmioPointer::child(mmio_pointer, child_pointer)
+                }
+            }
         }
-    }};
+    };
 }
 
 /// Gets `UniqueMmioPointer`s to several fields of a type wrapped in a `UniqueMmioPointer`.
@@ -1171,6 +1176,7 @@ macro_rules! field_shared {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::ops::{Deref, DerefMut};
 
     #[test]
     fn fields() {
@@ -1514,8 +1520,66 @@ mod tests {
         let mut sub = field!(owned, subregs);
         let mut field = field!(sub, field);
         field.write(42);
+        assert_eq!(field!(field!(owned, subregs), field).read(), 42);
 
         assert_eq!(foo.subregs.field.0, 42);
+    }
+
+    #[test]
+    fn field_evaluates_once() {
+        #[repr(C)]
+        struct Foo {
+            a: ReadWrite<u32>,
+        }
+
+        let mut foo1 = Foo { a: ReadWrite(1) };
+        let mut foo2 = Foo { a: ReadWrite(2) };
+        let mut first = UniqueMmioPointer::from(&mut foo1);
+        let mut second = UniqueMmioPointer::from(&mut foo2);
+
+        let mut evals = 0;
+        let mut child = field!(
+            *{
+                evals += 1;
+                core::mem::swap(&mut first, &mut second);
+                &mut first
+            },
+            a
+        );
+
+        assert_eq!(evals, 1);
+        assert_eq!(child.read(), 2);
+        assert_ne!(child.ptr(), field!(second, a).ptr());
+    }
+
+    #[test]
+    fn field_deref_mut_once() {
+        #[repr(C)]
+        struct Foo {
+            a: ReadWrite<u32>,
+        }
+
+        struct CountingDeref<'a>(UniqueMmioPointer<'a, Foo>, usize);
+
+        impl<'a> Deref for CountingDeref<'a> {
+            type Target = UniqueMmioPointer<'a, Foo>;
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl DerefMut for CountingDeref<'_> {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                self.1 += 1;
+                &mut self.0
+            }
+        }
+
+        let mut foo = Foo { a: ReadWrite(1) };
+        let mut wrapper = CountingDeref(UniqueMmioPointer::from(&mut foo), 0);
+
+        assert_eq!(field!(wrapper, a).read(), 1);
+        assert_eq!(wrapper.1, 1);
     }
 
     #[test]

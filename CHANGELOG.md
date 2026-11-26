@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Bugfixes
+
+- Fixed a soundness bug in `field!` where the first argument was evaluated multiple times, which
+  could produce aliased `UniqueMmioPointer`s. Nested `field!` calls now also work in Edition 2024.
+
 ### 0.4.0
 
 ### Breaking changes
